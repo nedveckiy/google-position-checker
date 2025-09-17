@@ -5,39 +5,75 @@ const fs = require('fs').promises;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Список запитів для України
+// 293 ключових слова для України
 const UKRAINE_QUERIES = [
-    'кредити онлайн',
-    'нові мфо',
-    'маловідомі мфо',
-    'кредит через дію',
-    'мфо україни',
-    'всі мфо',
-    'долгосрочный кредит на карту',
-    'онлайн кредит на карту',
-    'кредит без звонков',
-    'кредит без отказа и проверок',
-    'микрозаймы',
-    'микрокредиты',
-    'онлайн позики',
-    'мікрокредит онлайн',
-    'мікрокредит на картку',
-    'займи онлайн',
-    'мікропозика',
-    'кредит плюс',
-    'манівео',
-    'старфін'
+    'кредит онлайн', 'онлайн кредит', 'взять кредит онлайн', 'онлайн кредит на карту', 'кредит на карту онлайн',
+    'деньги в кредит онлайн', 'кредит онлайн на карту', 'займ на карту', 'займы', 'займы онлайн',
+    'займ онлайн на карту', 'онлайн займ', 'онлайн займ на карту', 'микро займ онлайн', 'мини займ',
+    'микрозаймы', 'микрозайм', 'микрозайм онлайн', 'микрозайм на карту', 'все микрозаймы украины',
+    'микрозайм онлайн на карту', 'все микрозаймы', 'микрозайм в украине', 'взять микрозайм', 'получить микрозайм',
+    'мфо', 'все мфо', 'мфо укр', 'мфо украины', 'все мфо украины',
+    'все мфо украины список', 'микрофинансовые организации список', 'перечень мфо украины', 'полный список мфо украины', 'микрофинансовые организации украины',
+    'микрокредит', 'микрокредиты', 'микрокредит онлайн', 'микрокредиты онлайн на карту', 'взять микрокредит',
+    'онлайн микрокредиты на карту', 'микрокредит онлайн на карту', 'кредит под 0', 'кредит под 0 процентов', 'кредит онлайн без процентов',
+    'микрозайм без процентов', 'займ под 0 процентов', 'микрозайм под 0', 'микрозайм под 0 процентов', 'кредиты онлайн на карту без процентов',
+    'онлайн кредит без процентов', 'кредит онлайн на карту без отказа срочно', 'кредит без отказа', 'кредит онлайн без отказа', 'кредиты онлайн без отказов',
+    'кредит на карту без отказа', 'кредит без отказов на карту', 'микрозайм на карту без отказов', 'микрокредит на карту без отказа', 'кредит на карту без отказа без проверки мгновенно',
+    'микрозайм без отказа', 'займ без отказа', 'быстрый кредит на карту без отказа', 'кредит на карту онлайн без отказа', 'кредит срочно без отказов',
+    'кредит 24 7', 'кредит онлайн на карту без отказа срочно 24 7', 'кредит без звонков и проверок 24 7', 'кредит 24 7 без отказа', 'кредит 24 7 на карту',
+    'кредит онлайн 24 7 без отказа', 'кредит 24 7 онлайн', 'кредит круглосуточно', 'кредит на карту 24 7', 'круглосуточный кредит на карту',
+    'займ 24 7', 'микро займ 24 7', 'микрокредит 24 7', 'долгосрочный займ на карту онлайн с ежемесячным погашением', 'долгосрочный кредит',
+    'долгосрочные кредиты', 'долгосрочный кредит для погашения микрозаймов с просрочками', 'кредит на долгий срок', 'кредит онлайн на долгий срок', 'кредит онлайн на карту на долгий срок',
+    'онлайн кредит на долгий срок', 'займ онлайн долгосрочный', 'долгосрочный микрозайм', 'долгосрочный микрокредит', 'новые мфо', 'новое мфо',
+    'новые кредиты онлайн без отказа', 'кредит онлайн новые мфо', 'новые кредиты онлайн', 'новые микрозаймы украины', 'новые микрозаймы', 'новые онлайн кредиты',
+    'кредит онлайн на карту новые мфо', 'новые мфо украины', 'самые новые мфо украины', 'малоизвестные мфо', 'все малоизвестные микрозаймы украины список',
+    'малоизвестные микрозаймы', 'займ онлайн малоизвестные мфо', 'неизвестные мфо', 'неизвестные мфо без отказа', 'новые малоизвестные мфо украины',
+    'самые новые малоизвестные мфо', 'кредит с плохой кредитной историей и просрочками в украине 24 7', 'кредиты онлайн на карту с плохой кредитной историей', 'кредит 24 7 на карту с плохой кредитной историей',
+    'кредит онлайн без отказов с плохой кредитной историей', 'кредиты с очень плохой кредитной историей', 'кредит с очень плохой кредитной историей', 'взять кредит на карту с плохой кредитной историей',
+    'кредит на карту мгновенно с плохой кредитной историей', 'займ онлайн с плохой кредитной историей', 'кредит робот за минуту', 'кредит бот', 'кредит бот без отказа',
+    'робот кредит', 'кредит онлайн автоматически', 'кредит робот', 'чат бот кредит', 'кредит робот бот', 'бот кредит',
+    'кредит бот на карту', 'автоматические кредиты на карту', 'кредит на карту с автоматическим решением', 'денег в долг', 'деньги в долг круглосуточно на карту',
+    'деньги в долг на карту срочно без проверки кредитной истории', 'деньги в долг на карту', 'деньги в долг онлайн', 'деньги до зарплаты', 'кредит до зарплати на карту',
+    'деньги до зарплаты на карту онлайн', 'микрозайм до зарплаты', 'деньги до зарплаты на карту круглосуточно', 'деньги до зарплаты на карту', 'кредит до зарплаты',
+    'кредиты онлайн на карту без звонков', 'кредит онлайн без фото', 'кредит на карту без звонков', 'кредит онлайн без звонков и фото', 'кредит онлайн без звонков и фотографий',
+    'кредиты без звонков и фото', 'онлайн кредит без звонка', 'кредит без звонков и фото', 'кредит с просрочками', 'кредиты с просрочками',
+    'кредит с просрочками по микрозаймам', 'взять кредит с большими просрочками', 'кредит должникам с просрочками', 'кредит онлайн с просрочкой', 'кредит на карту с большими просрочками',
+    'кредит без отказа с просрочками', 'займ с просрочкой', 'кредит онлайн 24 7 через bankid', 'кредит через банк id без звонков и фото', 'кредит через банк id',
+    'кредиты через банк id', 'кредит через банк айди', 'кредит через bankid', 'кредит онлайн через банк id', 'микрозайм через bankid', 'кредит через дию',
+    'взять кредит через дию', 'кредит онлайн через дию', 'онлайн кредит через дию', 'оформить кредит через дию', 'кредит через дию быстро', 'займ через дию',
+    'топ мфо', 'топ мфо украины', 'рейтинг мфо', 'мфо рейтинг', 'рейтинг мфо украины', 'рейтинг микрофинансовых организаций',
+    'лучшие мфо', 'лучшие мфо рейтинг', 'рейтинг кредитов онлайн', 'рейтинг микрозаймов', 'рейтинг лучших микрозаймов', 'кредит онлайн на карту приватбанка',
+    'кредит онлайн на карту приватбанка с плохой кредитной историей', 'онлайн кредит на карту приватбанка срочно', 'деньги в кредит на карту приватбанка', 'мгновенный кредит на карту приватбанка', 'кредит на карту приватбанка онлайн',
+    'быстрый займ', 'быстрый кредит', 'быстрый кредит на карту', 'кредит быстро', 'быстрый займ онлайн', 'займ на карту срочно',
+    'кредит на карту срочно', 'займ срочно', 'кредиты срочно на карту', 'кредит срочно на карту', 'кредит онлайн срочно', 'срочно нужны деньги',
+    'где срочно взять денег', 'где срочно взять деньги без отказа без проверки мгновенно', 'где взять денег срочно с плохой кредитной историей', 'срочно нужны деньги на карту', 'срочно нужны деньги на карту без отказа',
+    'займ кредит с 18 лет', 'взять кредит без отказа с 18 лет', 'взять кредит с 18 лет по паспорту', 'срочный кредит с 18 лет', 'кредит с 18 лет онлайн на карту',
+    'кредит с 18 лет без справки о доходах', 'кредит на 12 месяцев с 18 лет', 'кредит с 18 лет онлайн заявка', 'промокоды мфо', 'промокоды на кредиты',
+    'промокоды на микрозаймы', 'промокоды микрозаймы', 'промокоды на кредиты действующие', 'кредит без справки о доходах', 'кредит без справки о доходе', 'долгосрочный кредит на карту без справки о доходах',
+    'займ без справки о доходах', 'онлайн кредит без справки о доходах', 'кредит студенту', 'кредиты студентам', 'кредит для студентов', 'кредит для студента',
+    'кредит студентам без отказа', 'кредит пенсионеру', 'кредит пенсионерам', 'кредит пенсионерам без отказа', 'кредит для пенсионеров', 'кредит пенсионеру без отказа',
+    'кредиты онлайн для пенсионеров', 'где точно дадут кредит', 'где точно дадут кредит с просрочками', 'кредит 100 процентов', 'кредиты 100 процентов одобрение',
+    'кредит онлайн 100 процентов одобрения', 'кредит 100 процентов одобрения', 'кредит ночью', 'кредиты ночью', 'кредит ночью на карту', 'кредит ночью без отказа',
+    'кредит онлайн ночью на карту', 'кредит онлайн ночью', 'займ ночью', 'мфо которые дают всем', 'мфо которое дает всем', 'микрозайм который дает всем',
+    'микрозаймы которые дают всем', 'кредит который дают всем', 'какие микрозаймы дают всем'
 ];
 
-// Глобальні змінні для контролю тестування
-let bulkTestRunning = false;
-let currentTestResults = [];
+// Глобальні змінні
+let megaTestRunning = false;
+let currentResults = [];
+let currentQueryIndex = 0;
+
+// Конфігурація тестування
+const TEST_CONFIG = {
+    delayBetweenRequests: 3000,  // 3 секунди між запитами
+    pauseAfterQueries: 25,       // Пауза кожні 25 запитів
+    pauseDuration: 30000,        // 30 секунд пауза
+    maxResultsPerQuery: 100      // Топ-100 результатів
+};
 
 async function getCurrentIP() {
     try {
-        const response = await axios.get('https://api.ipify.org?format=json', {
-            timeout: 5000
-        });
+        const response = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
         return response.data.ip;
     } catch (error) {
         return 'Unknown';
@@ -48,61 +84,80 @@ async function logResult(logEntry) {
     const logLine = `${new Date().toISOString()} | ${JSON.stringify(logEntry)}\n`;
     
     try {
-        await fs.appendFile('bulk_test_log.txt', logLine);
-        console.log('Logged:', logEntry);
+        await fs.appendFile('mega_test_log.txt', logLine);
+        console.log(`[LOG] Query ${logEntry.requestNumber || '?'}: ${logEntry.success ? 'OK' : 'FAIL'}`);
     } catch (error) {
         console.error('Log error:', error.message);
     }
 }
 
-// Простий парсинг топ результатів
-function parseSimpleResults(html) {
+// Покращений парсинг з більш широким охопленням
+function parseTop100Results(html) {
     const results = [];
     
-    // Простий regex для знаходження заголовків і URL
-    const titleUrlPattern = /<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a><\/h3>/gi;
+    // Множинні паттерни для пошуку результатів
+    const patterns = [
+        /<div class="g"[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*VwiC3b[^"]*"[^>]*>([\s\S]*?)<\/span>|$)/gi,
+        /<div[^>]*class="[^"]*g[^"]*"[^>]*>[\s\S]*?<h3[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>.*?<\/h3>[\s\S]*?<span[^>]*>(.*?)<\/span>/gi,
+        /<a[^>]*href="\/url\?q=([^&"]*)[^"]*"[^>]*><h3[^>]*>(.*?)<\/h3><\/a>/gi
+    ];
     
-    let match;
     let position = 1;
+    let foundUrls = new Set(); // Уникнення дублікатів
     
-    while ((match = titleUrlPattern.exec(html)) !== null && position <= 20) {
-        let url = match[1];
-        let title = match[2];
+    for (let pattern of patterns) {
+        let match;
+        pattern.lastIndex = 0; // Reset regex
         
-        // Очищення URL
-        if (url.startsWith('/url?q=')) {
-            url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
-        }
-        
-        // Витягнення домену
-        let domain = '';
-        try {
-            if (url.startsWith('http')) {
-                domain = new URL(url).hostname.replace('www.', '');
+        while ((match = pattern.exec(html)) !== null && position <= TEST_CONFIG.maxResultsPerQuery) {
+            try {
+                let url = match[1];
+                let title = match[2] ? match[2].replace(/<[^>]*>/g, '').trim() : '';
+                let snippet = match[3] ? match[3].replace(/<[^>]*>/g, '').trim() : '';
+                
+                // Очищення URL
+                if (url.startsWith('/url?q=')) {
+                    url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
+                } else if (url.startsWith('http') === false) {
+                    continue; // Пропускаємо невалідні URL
+                }
+                
+                // Уникнення дублікатів
+                if (foundUrls.has(url)) continue;
+                foundUrls.add(url);
+                
+                // Витягнення домену
+                let domain = '';
+                try {
+                    domain = new URL(url).hostname.replace('www.', '');
+                } catch (e) {
+                    domain = url.substring(0, 50);
+                }
+                
+                if (title && url.startsWith('http')) {
+                    results.push({
+                        position: position,
+                        title: title.substring(0, 200),
+                        url: url,
+                        domain: domain,
+                        snippet: snippet.substring(0, 300)
+                    });
+                    position++;
+                }
+            } catch (error) {
+                continue;
             }
-        } catch (e) {
-            domain = url;
-        }
-        
-        if (title && url.startsWith('http')) {
-            results.push({
-                position: position,
-                title: title.trim(),
-                url: url,
-                domain: domain
-            });
-            position++;
         }
     }
     
     return results;
 }
 
-async function testSingleQuery(query, requestNumber) {
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=100&hl=uk&gl=ua&ie=UTF-8`;
+async function testSingleQueryMega(query, queryIndex) {
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=100&hl=uk&gl=ua&ie=UTF-8&start=0`;
     
     try {
-        console.log(`[${requestNumber}] Testing: "${query}"`);
+        console.log(`[${queryIndex}/${UKRAINE_QUERIES.length}] Testing: "${query}"`);
         
         const startTime = Date.now();
         
@@ -110,190 +165,282 @@ async function testSingleQuery(query, requestNumber) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8'
+                'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
             },
-            timeout: 15000
+            timeout: 20000
         });
         
         const responseTime = Date.now() - startTime;
+        const html = response.data;
         
         // Перевірка блокування
-        const html = response.data;
         const htmlLower = html.toLowerCase();
         const blocked = htmlLower.includes('unusual traffic') || 
                        htmlLower.includes('captcha') || 
                        htmlLower.includes('robots.txt') ||
+                       htmlLower.includes('verify you are human') ||
                        response.status === 429;
         
+        if (blocked) {
+            console.log(`[${queryIndex}] *** BLOCKED DETECTED ***`);
+            return {
+                queryIndex: queryIndex,
+                query: query,
+                success: true,
+                blocked: true,
+                statusCode: response.status,
+                responseTime: responseTime,
+                htmlSize: html.length,
+                resultsFound: 0,
+                results: [],
+                timestamp: new Date().toISOString()
+            };
+        }
+        
         // Парсинг результатів
-        const results = blocked ? [] : parseSimpleResults(html);
+        const results = parseTop100Results(html);
+        
+        console.log(`[${queryIndex}] SUCCESS - ${results.length} results parsed - ${responseTime}ms`);
         
         const result = {
-            requestNumber: requestNumber,
+            queryIndex: queryIndex,
             query: query,
             success: true,
-            blocked: blocked,
+            blocked: false,
             statusCode: response.status,
             responseTime: responseTime,
             htmlSize: html.length,
             resultsFound: results.length,
-            results: results.slice(0, 10), // Топ-10
+            results: results,
             timestamp: new Date().toISOString()
         };
         
-        console.log(`[${requestNumber}] ${blocked ? 'BLOCKED' : 'OK'} - ${results.length} results - ${responseTime}ms`);
+        // Зберегти результати окремо для кожного запиту
+        await saveQueryResults(queryIndex, query, result);
         
         return result;
         
     } catch (error) {
-        console.log(`[${requestNumber}] ERROR: ${error.message}`);
+        console.log(`[${queryIndex}] ERROR: ${error.message}`);
         
         return {
-            requestNumber: requestNumber,
+            queryIndex: queryIndex,
             query: query,
             success: false,
             blocked: false,
             error: error.message,
             statusCode: error.response ? error.response.status : 'TIMEOUT',
             responseTime: 0,
+            resultsFound: 0,
+            results: [],
             timestamp: new Date().toISOString()
         };
     }
 }
 
-// Послідовне тестування всіх запитів
-async function runBulkTest() {
-    if (bulkTestRunning) {
-        console.log('Bulk test already running');
-        return { error: 'Test already in progress' };
+// Збереження результатів для конкретного запиту
+async function saveQueryResults(queryIndex, query, result) {
+    try {
+        // JSON файл для кожного запиту
+        const jsonFilename = `results/query_${String(queryIndex).padStart(3, '0')}.json`;
+        await fs.writeFile(jsonFilename, JSON.stringify({
+            query: query,
+            queryIndex: queryIndex,
+            timestamp: result.timestamp,
+            blocked: result.blocked,
+            success: result.success,
+            resultsFound: result.resultsFound,
+            results: result.results
+        }, null, 2));
+        
+        // Додавання в загальний CSV
+        if (result.success && !result.blocked && result.results.length > 0) {
+            await appendToCSV(queryIndex, query, result.results);
+        }
+        
+    } catch (error) {
+        console.error(`Save error for query ${queryIndex}:`, error.message);
+    }
+}
+
+// Додавання в CSV файл
+async function appendToCSV(queryIndex, query, results) {
+    try {
+        let csvContent = '';
+        
+        // Створення заголовків при першому записі
+        try {
+            await fs.access('all_results.csv');
+        } catch {
+            csvContent = 'QueryIndex,Query,Position,Title,URL,Domain,Snippet\n';
+        }
+        
+        // Додавання результатів
+        for (let result of results) {
+            const csvRow = [
+                queryIndex,
+                `"${query.replace(/"/g, '""')}"`,
+                result.position,
+                `"${result.title.replace(/"/g, '""')}"`,
+                `"${result.url.replace(/"/g, '""')}"`,
+                `"${result.domain.replace(/"/g, '""')}"`,
+                `"${result.snippet.replace(/"/g, '""')}"`
+            ].join(',') + '\n';
+            
+            csvContent += csvRow;
+        }
+        
+        await fs.appendFile('all_results.csv', csvContent);
+        
+    } catch (error) {
+        console.error('CSV append error:', error.message);
+    }
+}
+
+// Головна функція мега-тестування
+async function runMegaBulkTest() {
+    if (megaTestRunning) {
+        return { success: false, error: 'Mega test already running' };
     }
     
-    bulkTestRunning = true;
-    currentTestResults = [];
+    megaTestRunning = true;
+    currentResults = [];
+    currentQueryIndex = 0;
     
     const startIP = await getCurrentIP();
     const testStartTime = new Date().toISOString();
     
-    console.log(`Starting bulk test with IP: ${startIP}`);
-    console.log(`Testing ${UKRAINE_QUERIES.length} queries`);
+    console.log(`Starting MEGA bulk test with ${UKRAINE_QUERIES.length} queries`);
+    console.log(`IP: ${startIP}, Delay: ${TEST_CONFIG.delayBetweenRequests}ms`);
     
     try {
+        // Створюємо папку для результатів
+        try {
+            await fs.mkdir('results');
+        } catch (e) { /* папка вже існує */ }
+        
         for (let i = 0; i < UKRAINE_QUERIES.length; i++) {
-            if (!bulkTestRunning) {
+            if (!megaTestRunning) {
                 console.log('Test stopped by user');
                 break;
             }
             
+            currentQueryIndex = i + 1;
             const query = UKRAINE_QUERIES[i];
-            const requestNumber = i + 1;
             
             // Виконати запит
-            const result = await testSingleQuery(query, requestNumber);
-            
-            // Додати IP інформацію
+            const result = await testSingleQueryMega(query, currentQueryIndex);
             result.ip = startIP;
             
-            // Зберегти результат
-            currentTestResults.push(result);
-            
-            // Записати в лог
+            currentResults.push(result);
             await logResult(result);
             
-            // Перевірити чи заблоковано
+            // Перевірка блокування
             if (result.blocked) {
-                console.log('BLOCKED detected! Stopping test.');
+                console.log('*** GOOGLE BLOCKED - STOPPING TEST ***');
                 await logResult({
-                    type: 'bulk_test_blocked',
+                    type: 'mega_test_blocked',
                     ip: startIP,
                     totalQueries: UKRAINE_QUERIES.length,
-                    completedQueries: requestNumber,
-                    blockedAt: requestNumber,
+                    completedQueries: currentQueryIndex,
+                    blockedAt: currentQueryIndex,
                     timestamp: new Date().toISOString()
                 });
                 break;
             }
             
-            // Затримка 1 секунда між запитами (крім останнього)
-            if (i < UKRAINE_QUERIES.length - 1 && bulkTestRunning) {
-                console.log(`Waiting 1000ms... (${i + 1}/${UKRAINE_QUERIES.length})`);
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            // Пауза кожні N запитів
+            if (currentQueryIndex % TEST_CONFIG.pauseAfterQueries === 0) {
+                console.log(`Taking ${TEST_CONFIG.pauseDuration/1000}s break after ${currentQueryIndex} queries...`);
+                await new Promise(resolve => setTimeout(resolve, TEST_CONFIG.pauseDuration));
+            }
+            
+            // Основна затримка між запитами
+            if (i < UKRAINE_QUERIES.length - 1 && megaTestRunning) {
+                console.log(`Waiting ${TEST_CONFIG.delayBetweenRequests/1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, TEST_CONFIG.delayBetweenRequests));
             }
         }
         
-        // Фінальний лог
+        // Фінальний звіт
         const summary = {
-            type: 'bulk_test_completed',
+            type: 'mega_test_completed',
             ip: startIP,
             startTime: testStartTime,
             endTime: new Date().toISOString(),
             totalQueries: UKRAINE_QUERIES.length,
-            completedQueries: currentTestResults.length,
-            successfulQueries: currentTestResults.filter(r => r.success && !r.blocked).length,
-            blockedQueries: currentTestResults.filter(r => r.blocked).length,
-            errorQueries: currentTestResults.filter(r => !r.success).length,
+            completedQueries: currentResults.length,
+            successfulQueries: currentResults.filter(r => r.success && !r.blocked).length,
+            blockedQueries: currentResults.filter(r => r.blocked).length,
+            errorQueries: currentResults.filter(r => !r.success).length,
+            totalResultsParsed: currentResults.reduce((sum, r) => sum + r.resultsFound, 0),
             averageResponseTime: Math.round(
-                currentTestResults.filter(r => r.responseTime > 0)
+                currentResults.filter(r => r.responseTime > 0)
                     .reduce((sum, r) => sum + r.responseTime, 0) / 
-                Math.max(1, currentTestResults.filter(r => r.responseTime > 0).length)
+                Math.max(1, currentResults.filter(r => r.responseTime > 0).length)
             )
         };
         
         await logResult(summary);
-        console.log('Bulk test completed:', summary);
+        await fs.writeFile('mega_test_summary.json', JSON.stringify(summary, null, 2));
         
-        return {
-            success: true,
-            summary: summary,
-            results: currentTestResults
-        };
+        console.log('MEGA TEST COMPLETED:', summary);
+        return { success: true, summary: summary, results: currentResults };
         
     } catch (error) {
-        console.error('Bulk test error:', error);
-        return {
-            success: false,
-            error: error.message,
-            partialResults: currentTestResults
-        };
+        console.error('Mega test critical error:', error);
+        return { success: false, error: error.message };
     } finally {
-        bulkTestRunning = false;
+        megaTestRunning = false;
+        currentQueryIndex = 0;
     }
 }
 
 // =============== ROUTES ===============
 
 app.get('/', (req, res) => {
+    const progress = megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'Ready';
+    const eta = megaTestRunning ? Math.round((UKRAINE_QUERIES.length - currentQueryIndex) * TEST_CONFIG.delayBetweenRequests / 1000 / 60) : 0;
+    
     res.send(`
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>Ukraine MFO Queries Bulk Tester</title>
+            <title>MEGA Bulk Tester - ${UKRAINE_QUERIES.length} Queries</title>
             <style>
                 body { font-family: Arial, sans-serif; max-width: 1000px; margin: 20px auto; padding: 20px; }
                 h1 { text-align: center; color: #333; }
-                .status { background: #e3f2fd; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
-                .queries-list { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                .btn { display: inline-block; padding: 15px 30px; margin: 10px; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }
+                .status { background: ${megaTestRunning ? '#fff3cd' : '#d4edda'}; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
+                .config { background: #e9ecef; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                .btn { display: inline-block; padding: 15px 30px; margin: 10px; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; cursor: pointer; border: none; }
                 .btn-success { background: #28a745; }
                 .btn-danger { background: #dc3545; }
                 .btn-primary { background: #007bff; }
                 .btn-info { background: #17a2b8; }
-                .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-                .running { background: #fff3cd; border-left: 4px solid #ffc107; }
+                .btn:hover { opacity: 0.9; }
+                .progress-bar { width: 100%; background: #e9ecef; border-radius: 10px; margin: 10px 0; }
+                .progress-fill { height: 20px; background: #28a745; border-radius: 10px; transition: width 0.5s; }
                 .warning { background: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 5px; }
+                .results-info { background: #d1ecf1; border-left: 4px solid #17a2b8; padding: 15px; margin: 20px 0; border-radius: 5px; }
             </style>
             <script>
-                async function startBulkTest() {
+                async function startMegaTest() {
+                    if (!confirm('Start testing 293 queries? This may take 20+ minutes and will make many requests to Google.')) return;
+                    
                     const btn = document.getElementById('startBtn');
                     btn.textContent = 'Starting...';
                     btn.disabled = true;
                     
                     try {
-                        const response = await fetch('/start-bulk-test');
+                        const response = await fetch('/start-mega-test');
                         const result = await response.json();
                         
                         if (result.success) {
-                            alert('Bulk test started! Check logs for progress.');
+                            alert('MEGA test started! Monitor progress in logs.');
                             location.reload();
                         } else {
                             alert('Error: ' + result.error);
@@ -303,12 +450,12 @@ app.get('/', (req, res) => {
                     }
                     
                     btn.disabled = false;
-                    btn.textContent = 'START BULK TEST';
+                    btn.textContent = 'START MEGA TEST';
                 }
                 
-                async function stopBulkTest() {
+                async function stopMegaTest() {
                     try {
-                        const response = await fetch('/stop-bulk-test');
+                        const response = await fetch('/stop-mega-test');
                         const result = await response.json();
                         alert(result.message);
                         location.reload();
@@ -316,42 +463,81 @@ app.get('/', (req, res) => {
                         alert('Error: ' + error.message);
                     }
                 }
+                
+                // Auto-refresh during test
+                if (${megaTestRunning}) {
+                    setTimeout(() => location.reload(), 10000); // Refresh every 10s
+                }
             </script>
         </head>
         <body>
-            <h1>Ukraine MFO Queries Bulk Tester</h1>
+            <h1>MEGA Bulk Tester</h1>
+            <h2>${UKRAINE_QUERIES.length} Ukraine MFO/Credit Queries</h2>
             
             <div class="status">
-                <strong>Current Status:</strong> ${bulkTestRunning ? 'Test Running...' : 'Ready'}<br>
+                <h3>Status: ${megaTestRunning ? 'RUNNING' : 'READY'}</h3>
+                <strong>Progress:</strong> ${progress}<br>
                 <strong>Time:</strong> ${new Date().toLocaleString()}<br>
-                <strong>Queries to test:</strong> ${UKRAINE_QUERIES.length}<br>
-                <strong>Delay between queries:</strong> 1 second
+                ${megaTestRunning ? `<strong>ETA:</strong> ~${eta} minutes remaining<br>` : ''}
+                <strong>Total Results Expected:</strong> ~${UKRAINE_QUERIES.length * 50} records
+                
+                ${megaTestRunning ? `
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${(currentQueryIndex/UKRAINE_QUERIES.length*100)}%"></div>
+                    </div>
+                ` : ''}
+            </div>
+
+            <div class="config">
+                <h3>Configuration</h3>
+                <strong>Queries:</strong> ${UKRAINE_QUERIES.length}<br>
+                <strong>Delay between requests:</strong> ${TEST_CONFIG.delayBetweenRequests/1000} seconds<br>
+                <strong>Pause every:</strong> ${TEST_CONFIG.pauseAfterQueries} queries<br>
+                <strong>Pause duration:</strong> ${TEST_CONFIG.pauseDuration/1000} seconds<br>
+                <strong>Results per query:</strong> Top-${TEST_CONFIG.maxResultsPerQuery}
             </div>
 
             <div style="text-align: center; margin: 30px 0;">
-                ${bulkTestRunning ? `
-                    <button onclick="stopBulkTest()" class="btn btn-danger">STOP TEST</button>
-                    <p class="running">Test in progress... Check logs for updates</p>
+                ${megaTestRunning ? `
+                    <button onclick="stopMegaTest()" class="btn btn-danger">STOP MEGA TEST</button>
+                    <p><strong>Test in progress...</strong> Query ${currentQueryIndex}/${UKRAINE_QUERIES.length}</p>
                 ` : `
-                    <button id="startBtn" onclick="startBulkTest()" class="btn btn-success">START BULK TEST</button>
+                    <button id="startBtn" onclick="startMegaTest()" class="btn btn-success">START MEGA TEST</button>
                 `}
                 
                 <a href="/ip" class="btn btn-info">Check IP</a>
-                <a href="/logs" class="btn btn-primary">View Logs</a>
-                <a href="/results" class="btn btn-primary">Last Results</a>
+                <a href="/logs" class="btn btn-primary">Live Logs</a>
+                <a href="/results-summary" class="btn btn-primary">Results Summary</a>
+                <a href="/download-results" class="btn btn-info">Download Data</a>
             </div>
 
-            <div class="queries-list">
-                <h3>Queries to test (${UKRAINE_QUERIES.length}):</h3>
-                <ol>
-                    ${UKRAINE_QUERIES.map(q => `<li>${q}</li>`).join('')}
-                </ol>
+            <div class="results-info">
+                <h3>Results Storage</h3>
+                <p><strong>JSON Files:</strong> Each query → separate file in /results/ folder</p>
+                <p><strong>CSV File:</strong> All results combined in all_results.csv</p>
+                <p><strong>Summary:</strong> mega_test_summary.json with statistics</p>
+                <p><strong>Logs:</strong> mega_test_log.txt with all requests</p>
             </div>
 
             <div class="warning">
-                <strong>Warning:</strong> This will make ${UKRAINE_QUERIES.length} requests to Google with 1-second delays. 
-                May trigger blocking. Use for testing IP rotation and Google's anti-bot measures.
+                <h3>Important Notes</h3>
+                <ul>
+                    <li>This will make <strong>${UKRAINE_QUERIES.length} requests</strong> to Google</li>
+                    <li>Expected duration: <strong>15-25 minutes</strong></li>
+                    <li>Google may block after 50-100 queries</li>
+                    <li>If blocked, restart Heroku dyno for new IP</li>
+                    <li>Results saved automatically, recoverable after crash</li>
+                </ul>
             </div>
+
+            <details style="margin: 20px 0;">
+                <summary><strong>All ${UKRAINE_QUERIES.length} Queries to Test</strong></summary>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto;">
+                    <ol>
+                        ${UKRAINE_QUERIES.map((q, i) => `<li>${q}</li>`).join('')}
+                    </ol>
+                </div>
+            </details>
         </body>
         </html>
     `);
@@ -362,76 +548,217 @@ app.get('/ip', async (req, res) => {
     res.json({ 
         ip: ip,
         timestamp: new Date().toISOString(),
-        heroku_dyno: process.env.DYNO || 'local'
+        heroku_dyno: process.env.DYNO || 'local',
+        test_running: megaTestRunning,
+        current_progress: megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'idle'
     });
 });
 
-app.get('/start-bulk-test', async (req, res) => {
-    if (bulkTestRunning) {
-        return res.json({ success: false, error: 'Test already running' });
+app.get('/start-mega-test', async (req, res) => {
+    if (megaTestRunning) {
+        return res.json({ success: false, error: 'MEGA test already running' });
     }
     
     // Запуск асинхронно
-    runBulkTest().then(result => {
-        console.log('Bulk test finished:', result);
+    runMegaBulkTest().then(result => {
+        console.log('MEGA test finished:', result.success);
     }).catch(error => {
-        console.error('Bulk test failed:', error);
-        bulkTestRunning = false;
+        console.error('MEGA test failed:', error);
+        megaTestRunning = false;
     });
     
-    res.json({ success: true, message: 'Bulk test started' });
+    res.json({ success: true, message: 'MEGA bulk test started' });
 });
 
-app.get('/stop-bulk-test', (req, res) => {
-    bulkTestRunning = false;
-    res.json({ message: 'Test stopped' });
+app.get('/stop-mega-test', (req, res) => {
+    megaTestRunning = false;
+    res.json({ message: `MEGA test stopped at query ${currentQueryIndex}` });
 });
 
 app.get('/logs', async (req, res) => {
     try {
-        const logs = await fs.readFile('bulk_test_log.txt', 'utf-8');
-        res.type('text/plain');
-        res.send(logs);
+        const logs = await fs.readFile('mega_test_log.txt', 'utf-8');
+        const lines = logs.split('\n').slice(-100); // Останні 100 рядків
+        
+        res.send(`
+            <html>
+            <head><title>Live Logs</title>
+            <meta http-equiv="refresh" content="5">
+            <style>
+                body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
+                .log-line { margin: 2px 0; }
+                .error { color: #f00; }
+                .success { color: #0f0; }
+                .blocked { color: #ff0; background: #440; }
+            </style>
+            </head>
+            <body>
+                <h2>Live Logs (auto-refresh every 5s)</h2>
+                <p>Progress: ${currentQueryIndex}/${UKRAINE_QUERIES.length} | Running: ${megaTestRunning}</p>
+                <div>
+                    ${lines.map(line => {
+                        const className = line.includes('BLOCKED') ? 'blocked' : 
+                                         line.includes('ERROR') ? 'error' : 'success';
+                        return `<div class="log-line ${className}">${line}</div>`;
+                    }).join('')}
+                </div>
+                <br><a href="/" style="color: #0ff;">Home</a>
+            </body>
+            </html>
+        `);
     } catch (error) {
-        res.status(404).send('No logs found');
+        res.status(404).send('<h2>No logs found yet</h2><a href="/">Home</a>');
     }
 });
 
-app.get('/results', (req, res) => {
-    if (currentTestResults.length === 0) {
+app.get('/results-summary', async (req, res) => {
+    if (currentResults.length === 0) {
         return res.send('<h2>No test results yet</h2><a href="/">Home</a>');
     }
     
-    const successful = currentTestResults.filter(r => r.success && !r.blocked);
-    const blocked = currentTestResults.filter(r => r.blocked);
-    const errors = currentTestResults.filter(r => !r.success);
+    const successful = currentResults.filter(r => r.success && !r.blocked);
+    const blocked = currentResults.filter(r => r.blocked);
+    const errors = currentResults.filter(r => !r.success);
+    const totalResults = currentResults.reduce((sum, r) => sum + r.resultsFound, 0);
     
     res.send(`
-        <h1>Last Test Results</h1>
-        <p><strong>Total queries:</strong> ${currentTestResults.length}</p>
-        <p><strong>Successful:</strong> ${successful.length}</p>
-        <p><strong>Blocked:</strong> ${blocked.length}</p>
-        <p><strong>Errors:</strong> ${errors.length}</p>
-        
-        <h2>Details:</h2>
-        ${currentTestResults.map(r => `
-            <div style="background: ${r.blocked ? '#f8d7da' : r.success ? '#d4edda' : '#fff3cd'}; padding: 10px; margin: 5px 0; border-radius: 5px;">
-                <strong>#${r.requestNumber}</strong> ${r.query} - 
-                ${r.blocked ? 'BLOCKED' : r.success ? `OK (${r.resultsFound} results, ${r.responseTime}ms)` : `ERROR: ${r.error}`}
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>MEGA Test Results Summary</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
+                .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+                .stat-box { background: #f8f9fa; padding: 20px; text-align: center; border-radius: 8px; border-left: 4px solid #007bff; }
+                .query-result { background: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 5px; }
+                .success { border-left: 4px solid #28a745; }
+                .blocked { border-left: 4px solid #dc3545; background: #f8d7da; }
+                .error { border-left: 4px solid #ffc107; background: #fff3cd; }
+                .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+            </style>
+        </head>
+        <body>
+            <h1>MEGA Test Results Summary</h1>
+            
+            <div class="summary">
+                <div class="stat-box">
+                    <h3>${currentResults.length}</h3>
+                    <p>Total Queries</p>
+                </div>
+                <div class="stat-box">
+                    <h3>${successful.length}</h3>
+                    <p>Successful</p>
+                </div>
+                <div class="stat-box">
+                    <h3>${blocked.length}</h3>
+                    <p>Blocked</p>
+                </div>
+                <div class="stat-box">
+                    <h3>${errors.length}</h3>
+                    <p>Errors</p>
+                </div>
+                <div class="stat-box">
+                    <h3>${totalResults}</h3>
+                    <p>Total Results Parsed</p>
+                </div>
+                <div class="stat-box">
+                    <h3>${Math.round(totalResults/Math.max(1,successful.length))}</h3>
+                    <p>Avg Results/Query</p>
+                </div>
             </div>
-        `).join('')}
-        
-        <br><a href="/">Home</a> | <a href="/logs">Logs</a>
+            
+            <h2>Query Details (Last 50)</h2>
+            <div>
+                ${currentResults.slice(-50).reverse().map(r => `
+                    <div class="query-result ${r.blocked ? 'blocked' : r.success ? 'success' : 'error'}">
+                        <strong>#${r.queryIndex}</strong> ${r.query} - 
+                        ${r.blocked ? `BLOCKED` : r.success ? `OK (${r.resultsFound} results, ${r.responseTime}ms)` : `ERROR: ${r.error}`}
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="/" class="btn">Home</a>
+                <a href="/logs" class="btn">Logs</a>
+                <a href="/download-results" class="btn">Download Data</a>
+            </div>
+        </body>
+        </html>
     `);
 });
 
+app.get('/download-results', async (req, res) => {
+    try {
+        // Перевіряємо які файли доступні
+        const files = [];
+        
+        try {
+            await fs.access('all_results.csv');
+            files.push({ name: 'all_results.csv', desc: 'All results in CSV format' });
+        } catch {}
+        
+        try {
+            await fs.access('mega_test_summary.json');
+            files.push({ name: 'mega_test_summary.json', desc: 'Test summary statistics' });
+        } catch {}
+        
+        try {
+            await fs.access('mega_test_log.txt');
+            files.push({ name: 'mega_test_log.txt', desc: 'Complete test logs' });
+        } catch {}
+        
+        res.send(`
+            <h1>Download Results</h1>
+            <p>Available files for download:</p>
+            <ul>
+                ${files.map(f => `<li><a href="/download/${f.name}">${f.name}</a> - ${f.desc}</li>`).join('')}
+            </ul>
+            <p><strong>Individual Query Results:</strong> JSON files are stored in /results/ folder</p>
+            <br><a href="/">Home</a>
+        `);
+        
+    } catch (error) {
+        res.status(500).send('Error accessing files: ' + error.message);
+    }
+});
+
+app.get('/download/:filename', async (req, res) => {
+    const filename = req.params.filename;
+    const allowedFiles = ['all_results.csv', 'mega_test_summary.json', 'mega_test_log.txt'];
+    
+    if (!allowedFiles.includes(filename)) {
+        return res.status(404).send('File not allowed');
+    }
+    
+    try {
+        const content = await fs.readFile(filename, 'utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', 'text/plain');
+        res.send(content);
+    } catch (error) {
+        res.status(404).send('File not found');
+    }
+});
+
+// Health check
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        test_running: megaTestRunning,
+        progress: megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'idle'
+    });
+});
+
+// Start server
 app.listen(PORT, () => {
-    console.log(`Bulk tester running on port ${PORT}`);
-    console.log(`Ready to test ${UKRAINE_QUERIES.length} Ukraine MFO queries`);
+    console.log(`MEGA Bulk Tester running on port ${PORT}`);
+    console.log(`Ready to test ${UKRAINE_QUERIES.length} Ukraine queries`);
+    console.log(`Expected ~${UKRAINE_QUERIES.length * 50} total results`);
 });
 
 process.on('SIGTERM', () => {
-    bulkTestRunning = false;
+    megaTestRunning = false;
     console.log('Server shutting down...');
     process.exit(0);
 });
