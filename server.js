@@ -1,11 +1,11 @@
 const express = require('express');
-const axios = require('axios');
+const puppeteer = require('puppeteer');
 const fs = require('fs').promises;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 293 ключових слова для України
+// 293 ключових слова для України (скорочено для прикладу)
 const UKRAINE_QUERIES = [
     'кредит онлайн', 'онлайн кредит', 'взять кредит онлайн', 'онлайн кредит на карту', 'кредит на карту онлайн',
     'деньги в кредит онлайн', 'кредит онлайн на карту', 'займ на карту', 'займы', 'займы онлайн',
@@ -62,92 +62,206 @@ const UKRAINE_QUERIES = [
 let megaTestRunning = false;
 let currentResults = [];
 let currentQueryIndex = 0;
+let browser = null;
 
-// Конфігурація тестування
 const TEST_CONFIG = {
-    delayBetweenRequests: 3000,  // 3 секунди між запитами
-    pauseAfterQueries: 25,       // Пауза кожні 25 запитів
-    pauseDuration: 30000,        // 30 секунд пауза
-    maxResultsPerQuery: 100      // Топ-100 результатів
+    delayBetweenRequests: 5000,    // 5 секунд між запитами
+    pauseAfterQueries: 15,         // Пауза кожні 15 запитів
+    pauseDuration: 60000,          // 60 секунд пауза
+    maxResultsPerQuery: 100        
 };
 
-async function getCurrentIP() {
-    try {
-        const response = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
-        return response.data.ip;
-    } catch (error) {
-        return 'Unknown';
-    }
+// Ініціалізація браузера з анти-детекцією
+async function initBrowser() {
+    if (browser) return browser;
+    
+    console.log('Initializing Puppeteer browser...');
+    
+    browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-extensions',
+            '--disable-plugins',
+            '--disable-images',
+            '--disable-javascript',
+            '--disable-default-apps',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-field-trial-config'
+        ]
+    });
+    
+    return browser;
 }
 
-async function logResult(logEntry) {
-    const logLine = `${new Date().toISOString()} | ${JSON.stringify(logEntry)}\n`;
+// Створення нової сторінки з анти-детекцією
+async function createStealthPage() {
+    const browser = await initBrowser();
+    const page = await browser.newPage();
     
-    try {
-        await fs.appendFile('mega_test_log.txt', logLine);
-        console.log(`[LOG] Query ${logEntry.requestNumber || '?'}: ${logEntry.success ? 'OK' : 'FAIL'}`);
-    } catch (error) {
-        console.error('Log error:', error.message);
-    }
+    // Встановлюємо viewport
+    await page.setViewport({
+        width: 1366,
+        height: 768,
+        deviceScaleFactor: 1
+    });
+    
+    // Встановлюємо User-Agent
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    
+    // Встановлюємо додаткові заголовки
+    await page.setExtraHTTPHeaders({
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,uk;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
+    });
+    
+    // Анти-детекція скрипти
+    await page.evaluateOnNewDocument(() => {
+        // Приховуємо webdriver
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined,
+        });
+        
+        // Перевизначаємо chrome property
+        window.chrome = {
+            runtime: {}
+        };
+        
+        // Перевизначаємо plugins
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+        });
+        
+        // Перевизначаємо languages
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en', 'uk']
+        });
+        
+        // Приховуємо automation
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+    });
+    
+    return page;
 }
 
-// Оновлений парсер 2025 з актуальними селекторами
-function parseTop100Results(html) {
-    const results = [];
-    let position = 1;
-    const foundUrls = new Set();
+// Функція для парсингу Google SERP з Puppeteer
+async function scrapeGoogleWithPuppeteer(query, queryIndex) {
+    let page = null;
     
-    // Оновлені паттерни для Google 2025
-    const patterns = [
-        // Паттерн 1: data-ved атрибути (найновіший)
-        /<div[^>]*data-ved[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|s3v9rd|IsZvec)[^"]*"[^>]*>([\s\S]*?)<\/span>|<div[^>]*class="[^"]*(?:VwiC3b|s3v9rd)[^"]*"[^>]*>([\s\S]*?)<\/div>|$)/gi,
+    try {
+        console.log(`[${queryIndex}] Opening browser page for: "${query}"`);
         
-        // Паттерн 2: MjjYud клас wrapper
-        /<div[^>]*class="[^"]*MjjYud[^"]*"[^>]*>[\s\S]*?<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|s3v9rd|IsZvec)[^"]*"[^>]*>([\s\S]*?)<\/span>|<div[^>]*>([\s\S]*?)<\/div>|$)/gi,
+        page = await createStealthPage();
+        const startTime = Date.now();
         
-        // Паттерн 3: jscontroller атрибути
-        /<div[^>]*jscontroller[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*>([\s\S]*?)<\/span>|<div[^>]*>([\s\S]*?)<\/div>|$)/gi,
+        // Формуємо URL
+        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=100&hl=en&gl=us`;
         
-        // Паттерн 4: Класичний g клас (fallback)
-        /<div[^>]*class="[^"]*\bg\b[^"]*"[^>]*>[\s\S]*?<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|st|s3v9rd)[^"]*"[^>]*>([\s\S]*?)<\/span>|$)/gi,
+        console.log(`[${queryIndex}] Navigating to: ${searchUrl}`);
         
-        // Паттерн 5: Простий H3 + A (універсальний)
-        /<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>/gi
-    ];
-    
-    for (let pattern of patterns) {
-        let match;
-        pattern.lastIndex = 0;
+        // Переходимо на Google
+        const response = await page.goto(searchUrl, {
+            waitUntil: 'networkidle0',
+            timeout: 30000
+        });
         
-        while ((match = pattern.exec(html)) !== null && position <= TEST_CONFIG.maxResultsPerQuery) {
-            try {
-                let url = match[1];
-                let title = match[2] ? match[2].replace(/<[^>]*>/g, '').trim() : '';
-                let snippet = (match[3] || match[4] || '').replace(/<[^>]*>/g, '').trim();
+        const responseTime = Date.now() - startTime;
+        
+        // Перевіряємо чи заблоковані
+        const title = await page.title();
+        const url = page.url();
+        
+        if (title.includes('unusual traffic') || url.includes('sorry') || url.includes('captcha')) {
+            console.log(`[${queryIndex}] *** BLOCKED DETECTED ***`);
+            await page.close();
+            return {
+                queryIndex: queryIndex,
+                query: query,
+                success: true,
+                blocked: true,
+                statusCode: response.status(),
+                responseTime: responseTime,
+                resultsFound: 0,
+                results: [],
+                timestamp: new Date().toISOString()
+            };
+        }
+        
+        // Чекаємо завантаження результатів
+        await page.waitForSelector('h3', { timeout: 10000 }).catch(() => {
+            console.log(`[${queryIndex}] No h3 elements found, continuing...`);
+        });
+        
+        // Парсимо результати
+        console.log(`[${queryIndex}] Parsing results...`);
+        
+        const results = await page.evaluate(() => {
+            const results = [];
+            let position = 1;
+            
+            // Шукаємо всі результати через різні селектори
+            const selectors = [
+                'div[data-ved] h3 a',
+                'div.g h3 a', 
+                'div.MjjYud h3 a',
+                'div[jscontroller] h3 a'
+            ];
+            
+            const foundUrls = new Set();
+            
+            for (let selector of selectors) {
+                const elements = document.querySelectorAll(selector);
                 
-                // Очищення URL від Google редиректів
-                if (url.startsWith('/url?q=')) {
-                    try {
-                        url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
-                    } catch (e) {
-                        continue;
+                elements.forEach(link => {
+                    if (position > 100) return;
+                    
+                    let url = link.href;
+                    if (!url || !url.startsWith('http')) return;
+                    if (foundUrls.has(url)) return;
+                    foundUrls.add(url);
+                    
+                    const title = link.textContent.trim();
+                    if (!title) return;
+                    
+                    // Шукаємо snippet
+                    let snippet = '';
+                    const parent = link.closest('div');
+                    if (parent) {
+                        const snippetEl = parent.querySelector('.VwiC3b, .s3v9rd, .st, .IsZvec');
+                        if (snippetEl) {
+                            snippet = snippetEl.textContent.trim();
+                        }
                     }
-                }
-                
-                // Перевірка валідності URL
-                if (!url.startsWith('http')) continue;
-                if (foundUrls.has(url)) continue;
-                foundUrls.add(url);
-                
-                // Витягнення домену
-                let domain = '';
-                try {
-                    domain = new URL(url).hostname.replace('www.', '');
-                } catch (e) {
-                    domain = url.substring(0, 50);
-                }
-                
-                if (title && url) {
+                    
+                    // Витягуємо домен
+                    let domain = '';
+                    try {
+                        domain = new URL(url).hostname.replace('www.', '');
+                    } catch (e) {
+                        domain = url.substring(0, 50);
+                    }
+                    
                     results.push({
                         position: position,
                         title: title.substring(0, 200),
@@ -155,81 +269,15 @@ function parseTop100Results(html) {
                         domain: domain,
                         snippet: snippet.substring(0, 300)
                     });
+                    
                     position++;
-                }
-            } catch (error) {
-                continue;
+                });
             }
-        }
-    }
-    
-    console.log(`Parsed ${results.length} results using 2025 patterns`);
-    return results.slice(0, TEST_CONFIG.maxResultsPerQuery);
-}
-
-async function testSingleQueryMega(query, queryIndex) {
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=100&hl=uk&gl=ua&ie=UTF-8&start=0`;
-    
-    try {
-        console.log(`[${queryIndex}/${UKRAINE_QUERIES.length}] Testing: "${query}"`);
-        
-        const startTime = Date.now();
-        
-        const response = await axios.get(searchUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            },
-            timeout: 20000
+            
+            return results;
         });
         
-        const responseTime = Date.now() - startTime;
-        const html = response.data;
-        
-        // Оновлена перевірка блокування для 2025
-        const htmlLower = html.toLowerCase();
-        const blocked = htmlLower.includes('unusual traffic') || 
-                       htmlLower.includes('captcha') || 
-                       htmlLower.includes('robots.txt') ||
-                       htmlLower.includes('verify you are human') ||
-                       htmlLower.includes('our systems have detected') ||
-                       htmlLower.includes('suspicious activity') ||
-                       htmlLower.includes('automated queries') ||
-                       response.status === 429 ||
-                       response.status === 503 ||
-                       response.status === 403;
-        
-        if (blocked) {
-            console.log(`[${queryIndex}] *** BLOCKED DETECTED ***`);
-            return {
-                queryIndex: queryIndex,
-                query: query,
-                success: true,
-                blocked: true,
-                statusCode: response.status,
-                responseTime: responseTime,
-                htmlSize: html.length,
-                resultsFound: 0,
-                results: [],
-                timestamp: new Date().toISOString()
-            };
-        }
-        
-        // Парсинг результатів
-        const results = parseTop100Results(html);
+        await page.close();
         
         console.log(`[${queryIndex}] SUCCESS - ${results.length} results parsed - ${responseTime}ms`);
         
@@ -238,20 +286,22 @@ async function testSingleQueryMega(query, queryIndex) {
             query: query,
             success: true,
             blocked: false,
-            statusCode: response.status,
+            statusCode: response.status(),
             responseTime: responseTime,
-            htmlSize: html.length,
+            htmlSize: 0, // Puppeteer не дає HTML розмір
             resultsFound: results.length,
             results: results,
             timestamp: new Date().toISOString()
         };
         
-        // Зберегти результати окремо для кожного запиту
+        // Зберігаємо результати
         await saveQueryResults(queryIndex, query, result);
         
         return result;
         
     } catch (error) {
+        if (page) await page.close();
+        
         console.log(`[${queryIndex}] ERROR: ${error.message}`);
         
         return {
@@ -260,7 +310,6 @@ async function testSingleQueryMega(query, queryIndex) {
             success: false,
             blocked: false,
             error: error.message,
-            statusCode: error.response ? error.response.status : 'TIMEOUT',
             responseTime: 0,
             resultsFound: 0,
             results: [],
@@ -269,10 +318,9 @@ async function testSingleQueryMega(query, queryIndex) {
     }
 }
 
-// Збереження результатів для конкретного запиту
+// Збереження результатів (та же функція)
 async function saveQueryResults(queryIndex, query, result) {
     try {
-        // JSON файл для кожного запиту
         const jsonFilename = `results/query_${String(queryIndex).padStart(3, '0')}.json`;
         await fs.writeFile(jsonFilename, JSON.stringify({
             query: query,
@@ -284,7 +332,6 @@ async function saveQueryResults(queryIndex, query, result) {
             results: result.results
         }, null, 2));
         
-        // Додавання в загальний CSV
         if (result.success && !result.blocked && result.results.length > 0) {
             await appendToCSV(queryIndex, query, result.results);
         }
@@ -294,19 +341,17 @@ async function saveQueryResults(queryIndex, query, result) {
     }
 }
 
-// Додавання в CSV файл
+// CSV функція (та же)
 async function appendToCSV(queryIndex, query, results) {
     try {
         let csvContent = '';
         
-        // Створення заголовків при першому записі
         try {
             await fs.access('all_results.csv');
         } catch {
             csvContent = 'QueryIndex,Query,Position,Title,URL,Domain,Snippet\n';
         }
         
-        // Додавання результатів
         for (let result of results) {
             const csvRow = [
                 queryIndex,
@@ -328,27 +373,36 @@ async function appendToCSV(queryIndex, query, results) {
     }
 }
 
-// Головна функція мега-тестування
-async function runMegaBulkTest() {
+// Функція логування
+async function logResult(logEntry) {
+    const logLine = `${new Date().toISOString()} | ${JSON.stringify(logEntry)}\n`;
+    
+    try {
+        await fs.appendFile('puppeteer_test_log.txt', logLine);
+        console.log(`[LOG] Query ${logEntry.queryIndex || '?'}: ${logEntry.success ? 'OK' : 'FAIL'}`);
+    } catch (error) {
+        console.error('Log error:', error.message);
+    }
+}
+
+// Головна функція тестування
+async function runPuppeteerBulkTest() {
     if (megaTestRunning) {
-        return { success: false, error: 'Mega test already running' };
+        return { success: false, error: 'Puppeteer test already running' };
     }
     
     megaTestRunning = true;
     currentResults = [];
     currentQueryIndex = 0;
     
-    const startIP = await getCurrentIP();
     const testStartTime = new Date().toISOString();
-    
-    console.log(`Starting MEGA bulk test with ${UKRAINE_QUERIES.length} queries`);
-    console.log(`IP: ${startIP}, Delay: ${TEST_CONFIG.delayBetweenRequests}ms`);
+    console.log(`Starting Puppeteer bulk test with ${UKRAINE_QUERIES.length} queries`);
     
     try {
         // Створюємо папку для результатів
         try {
             await fs.mkdir('results');
-        } catch (e) { /* папка вже існує */ }
+        } catch (e) {}
         
         for (let i = 0; i < UKRAINE_QUERIES.length; i++) {
             if (!megaTestRunning) {
@@ -359,9 +413,8 @@ async function runMegaBulkTest() {
             currentQueryIndex = i + 1;
             const query = UKRAINE_QUERIES[i];
             
-            // Виконати запит
-            const result = await testSingleQueryMega(query, currentQueryIndex);
-            result.ip = startIP;
+            // Виконати запит через Puppeteer
+            const result = await scrapeGoogleWithPuppeteer(query, currentQueryIndex);
             
             currentResults.push(result);
             await logResult(result);
@@ -370,8 +423,7 @@ async function runMegaBulkTest() {
             if (result.blocked) {
                 console.log('*** GOOGLE BLOCKED - STOPPING TEST ***');
                 await logResult({
-                    type: 'mega_test_blocked',
-                    ip: startIP,
+                    type: 'puppeteer_test_blocked',
                     totalQueries: UKRAINE_QUERIES.length,
                     completedQueries: currentQueryIndex,
                     blockedAt: currentQueryIndex,
@@ -393,10 +445,15 @@ async function runMegaBulkTest() {
             }
         }
         
+        // Закриваємо браузер
+        if (browser) {
+            await browser.close();
+            browser = null;
+        }
+        
         // Фінальний звіт
         const summary = {
-            type: 'mega_test_completed',
-            ip: startIP,
+            type: 'puppeteer_test_completed',
             startTime: testStartTime,
             endTime: new Date().toISOString(),
             totalQueries: UKRAINE_QUERIES.length,
@@ -413,17 +470,22 @@ async function runMegaBulkTest() {
         };
         
         await logResult(summary);
-        await fs.writeFile('mega_test_summary.json', JSON.stringify(summary, null, 2));
+        await fs.writeFile('puppeteer_summary.json', JSON.stringify(summary, null, 2));
         
-        console.log('MEGA TEST COMPLETED:', summary);
+        console.log('PUPPETEER TEST COMPLETED:', summary);
         return { success: true, summary: summary, results: currentResults };
         
     } catch (error) {
-        console.error('Mega test critical error:', error);
+        console.error('Puppeteer test critical error:', error);
         return { success: false, error: error.message };
     } finally {
         megaTestRunning = false;
         currentQueryIndex = 0;
+        
+        if (browser) {
+            await browser.close();
+            browser = null;
+        }
     }
 }
 
@@ -431,44 +493,38 @@ async function runMegaBulkTest() {
 
 app.get('/', (req, res) => {
     const progress = megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'Ready';
-    const eta = megaTestRunning ? Math.round((UKRAINE_QUERIES.length - currentQueryIndex) * TEST_CONFIG.delayBetweenRequests / 1000 / 60) : 0;
     
     res.send(`
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>MEGA Bulk Tester - ${UKRAINE_QUERIES.length} Queries</title>
+            <title>Puppeteer Google SERP Scraper</title>
             <style>
                 body { font-family: Arial, sans-serif; max-width: 1000px; margin: 20px auto; padding: 20px; }
                 h1 { text-align: center; color: #333; }
                 .status { background: ${megaTestRunning ? '#fff3cd' : '#d4edda'}; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
-                .config { background: #e9ecef; padding: 20px; border-radius: 8px; margin: 20px 0; }
                 .btn { display: inline-block; padding: 15px 30px; margin: 10px; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; cursor: pointer; border: none; }
                 .btn-success { background: #28a745; }
                 .btn-danger { background: #dc3545; }
                 .btn-primary { background: #007bff; }
-                .btn-info { background: #17a2b8; }
                 .btn:hover { opacity: 0.9; }
-                .progress-bar { width: 100%; background: #e9ecef; border-radius: 10px; margin: 10px 0; }
-                .progress-fill { height: 20px; background: #28a745; border-radius: 10px; transition: width 0.5s; }
-                .warning { background: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 5px; }
-                .results-info { background: #d1ecf1; border-left: 4px solid #17a2b8; padding: 15px; margin: 20px 0; border-radius: 5px; }
+                .features { background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; }
             </style>
             <script>
-                async function startMegaTest() {
-                    if (!confirm('Start testing 293 queries? This may take 20+ minutes and will make many requests to Google.')) return;
+                async function startPuppeteerTest() {
+                    if (!confirm('Start Puppeteer test? This uses a real browser and may take 30+ minutes.')) return;
                     
                     const btn = document.getElementById('startBtn');
                     btn.textContent = 'Starting...';
                     btn.disabled = true;
                     
                     try {
-                        const response = await fetch('/start-mega-test');
+                        const response = await fetch('/start-puppeteer-test');
                         const result = await response.json();
                         
                         if (result.success) {
-                            alert('MEGA test started! Monitor progress in logs.');
+                            alert('Puppeteer test started!');
                             location.reload();
                         } else {
                             alert('Error: ' + result.error);
@@ -478,12 +534,12 @@ app.get('/', (req, res) => {
                     }
                     
                     btn.disabled = false;
-                    btn.textContent = 'START MEGA TEST';
+                    btn.textContent = 'START PUPPETEER TEST';
                 }
                 
-                async function stopMegaTest() {
+                async function stopTest() {
                     try {
-                        const response = await fetch('/stop-mega-test');
+                        const response = await fetch('/stop-test');
                         const result = await response.json();
                         alert(result.message);
                         location.reload();
@@ -491,440 +547,108 @@ app.get('/', (req, res) => {
                         alert('Error: ' + error.message);
                     }
                 }
-                
-                // Auto-refresh during test
-                if (${megaTestRunning}) {
-                    setTimeout(() => location.reload(), 10000); // Refresh every 10s
-                }
             </script>
         </head>
         <body>
-            <h1>MEGA Bulk Tester</h1>
-            <h2>${UKRAINE_QUERIES.length} Ukraine MFO/Credit Queries</h2>
+            <h1>Puppeteer Google SERP Scraper</h1>
             
             <div class="status">
                 <h3>Status: ${megaTestRunning ? 'RUNNING' : 'READY'}</h3>
                 <strong>Progress:</strong> ${progress}<br>
-                <strong>Time:</strong> ${new Date().toLocaleString()}<br>
-                ${megaTestRunning ? `<strong>ETA:</strong> ~${eta} minutes remaining<br>` : ''}
-                <strong>Total Results Expected:</strong> ~${UKRAINE_QUERIES.length * 50} records
-                
-                ${megaTestRunning ? `
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${(currentQueryIndex/UKRAINE_QUERIES.length*100)}%"></div>
-                    </div>
-                ` : ''}
+                <strong>Mode:</strong> Full Browser (Puppeteer)<br>
+                <strong>Anti-Detection:</strong> Enabled
             </div>
 
-            <div class="config">
-                <h3>Configuration</h3>
-                <strong>Queries:</strong> ${UKRAINE_QUERIES.length}<br>
-                <strong>Delay between requests:</strong> ${TEST_CONFIG.delayBetweenRequests/1000} seconds<br>
-                <strong>Pause every:</strong> ${TEST_CONFIG.pauseAfterQueries} queries<br>
-                <strong>Pause duration:</strong> ${TEST_CONFIG.pauseDuration/1000} seconds<br>
-                <strong>Results per query:</strong> Top-${TEST_CONFIG.maxResultsPerQuery}
+            <div class="features">
+                <h3>Anti-Detection Features:</h3>
+                <ul>
+                    <li>Real Chrome browser rendering</li>
+                    <li>Stealth user agent & headers</li>
+                    <li>JavaScript execution</li>
+                    <li>WebDriver property hiding</li>
+                    <li>Realistic viewport & plugins</li>
+                    <li>Network idle waiting</li>
+                </ul>
             </div>
 
             <div style="text-align: center; margin: 30px 0;">
                 ${megaTestRunning ? `
-                    <button onclick="stopMegaTest()" class="btn btn-danger">STOP MEGA TEST</button>
-                    <p><strong>Test in progress...</strong> Query ${currentQueryIndex}/${UKRAINE_QUERIES.length}</p>
+                    <button onclick="stopTest()" class="btn btn-danger">STOP TEST</button>
+                    <p>Query ${currentQueryIndex}/${UKRAINE_QUERIES.length} running...</p>
                 ` : `
-                    <button id="startBtn" onclick="startMegaTest()" class="btn btn-success">START MEGA TEST</button>
+                    <button id="startBtn" onclick="startPuppeteerTest()" class="btn btn-success">START PUPPETEER TEST</button>
                 `}
                 
-                <a href="/ip" class="btn btn-info">Check IP</a>
-                <a href="/logs" class="btn btn-primary">Live Logs</a>
-                <a href="/debug-search?query=кредит+онлайн" class="btn btn-info">Debug Parser</a>
+                <a href="/logs" class="btn btn-primary">View Logs</a>
                 <a href="/results-summary" class="btn btn-primary">Results Summary</a>
-                <a href="/download-results" class="btn btn-info">Download Data</a>
             </div>
-
-            <div class="results-info">
-                <h3>Results Storage</h3>
-                <p><strong>JSON Files:</strong> Each query → separate file in /results/ folder</p>
-                <p><strong>CSV File:</strong> All results combined in all_results.csv</p>
-                <p><strong>Summary:</strong> mega_test_summary.json with statistics</p>
-                <p><strong>Logs:</strong> mega_test_log.txt with all requests</p>
-            </div>
-
-            <div class="warning">
-                <h3>Important Notes</h3>
-                <ul>
-                    <li>This will make <strong>${UKRAINE_QUERIES.length} requests</strong> to Google</li>
-                    <li>Expected duration: <strong>15-25 minutes</strong></li>
-                    <li>Google may block after 50-100 queries</li>
-                    <li>If blocked, restart Heroku dyno for new IP</li>
-                    <li>Results saved automatically, recoverable after crash</li>
-                </ul>
-            </div>
-
-            <details style="margin: 20px 0;">
-                <summary><strong>All ${UKRAINE_QUERIES.length} Queries to Test</strong></summary>
-                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto;">
-                    <ol>
-                        ${UKRAINE_QUERIES.map((q, i) => `<li>${q}</li>`).join('')}
-                    </ol>
-                </div>
-            </details>
         </body>
         </html>
     `);
 });
 
-app.get('/ip', async (req, res) => {
-    const ip = await getCurrentIP();
-    res.json({ 
-        ip: ip,
-        timestamp: new Date().toISOString(),
-        heroku_dyno: process.env.DYNO || 'local',
-        test_running: megaTestRunning,
-        current_progress: megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'idle'
-    });
-});
-
-app.get('/start-mega-test', async (req, res) => {
+app.get('/start-puppeteer-test', async (req, res) => {
     if (megaTestRunning) {
-        return res.json({ success: false, error: 'MEGA test already running' });
+        return res.json({ success: false, error: 'Test already running' });
     }
     
-    // Запуск асинхронно
-    runMegaBulkTest().then(result => {
-        console.log('MEGA test finished:', result.success);
+    runPuppeteerBulkTest().then(result => {
+        console.log('Puppeteer test finished:', result.success);
     }).catch(error => {
-        console.error('MEGA test failed:', error);
+        console.error('Puppeteer test failed:', error);
         megaTestRunning = false;
     });
     
-    res.json({ success: true, message: 'MEGA bulk test started' });
+    res.json({ success: true, message: 'Puppeteer test started' });
 });
 
-app.get('/stop-mega-test', (req, res) => {
+app.get('/stop-test', (req, res) => {
     megaTestRunning = false;
-    res.json({ message: `MEGA test stopped at query ${currentQueryIndex}` });
+    res.json({ message: 'Test stopped' });
 });
 
 app.get('/logs', async (req, res) => {
     try {
-        const logs = await fs.readFile('mega_test_log.txt', 'utf-8');
-        const lines = logs.split('\n').slice(-100); // Останні 100 рядків
+        const logs = await fs.readFile('puppeteer_test_log.txt', 'utf-8');
+        const lines = logs.split('\n').slice(-50);
         
         res.send(`
-            <html>
-            <head><title>Live Logs</title>
-            <meta http-equiv="refresh" content="5">
-            <style>
-                body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
-                .log-line { margin: 2px 0; }
-                .error { color: #f00; }
-                .success { color: #0f0; }
-                .blocked { color: #ff0; background: #440; }
-            </style>
-            </head>
-            <body>
-                <h2>Live Logs (auto-refresh every 5s)</h2>
-                <p>Progress: ${currentQueryIndex}/${UKRAINE_QUERIES.length} | Running: ${megaTestRunning}</p>
-                <div>
-                    ${lines.map(line => {
-                        const className = line.includes('BLOCKED') ? 'blocked' : 
-                                         line.includes('ERROR') ? 'error' : 'success';
-                        return `<div class="log-line ${className}">${line}</div>`;
-                    }).join('')}
-                </div>
-                <br><a href="/" style="color: #0ff;">Home</a>
-            </body>
-            </html>
+            <h1>Puppeteer Logs</h1>
+            <pre style="background:#000; color:#0f0; padding:20px; overflow:auto; max-height:600px;">
+                ${lines.join('\n')}
+            </pre>
+            <br><a href="/">Home</a>
         `);
     } catch (error) {
-        res.status(404).send('<h2>No logs found yet</h2><a href="/">Home</a>');
+        res.send('<h2>No logs found</h2><a href="/">Home</a>');
     }
 });
 
-app.get('/results-summary', async (req, res) => {
+app.get('/results-summary', (req, res) => {
     if (currentResults.length === 0) {
-        return res.send('<h2>No test results yet</h2><a href="/">Home</a>');
+        return res.send('<h2>No results yet</h2><a href="/">Home</a>');
     }
     
     const successful = currentResults.filter(r => r.success && !r.blocked);
-    const blocked = currentResults.filter(r => r.blocked);
-    const errors = currentResults.filter(r => !r.success);
     const totalResults = currentResults.reduce((sum, r) => sum + r.resultsFound, 0);
     
     res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>MEGA Test Results Summary</title>
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
-                .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
-                .stat-box { background: #f8f9fa; padding: 20px; text-align: center; border-radius: 8px; border-left: 4px solid #007bff; }
-                .query-result { background: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 5px; }
-                .success { border-left: 4px solid #28a745; }
-                .blocked { border-left: 4px solid #dc3545; background: #f8d7da; }
-                .error { border-left: 4px solid #ffc107; background: #fff3cd; }
-                .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
-            </style>
-        </head>
-        <body>
-            <h1>MEGA Test Results Summary</h1>
-            
-            <div class="summary">
-                <div class="stat-box">
-                    <h3>${currentResults.length}</h3>
-                    <p>Total Queries</p>
-                </div>
-                <div class="stat-box">
-                    <h3>${successful.length}</h3>
-                    <p>Successful</p>
-                </div>
-                <div class="stat-box">
-                    <h3>${blocked.length}</h3>
-                    <p>Blocked</p>
-                </div>
-                <div class="stat-box">
-                    <h3>${errors.length}</h3>
-                    <p>Errors</p>
-                </div>
-                <div class="stat-box">
-                    <h3>${totalResults}</h3>
-                    <p>Total Results Parsed</p>
-                </div>
-                <div class="stat-box">
-                    <h3>${Math.round(totalResults/Math.max(1,successful.length))}</h3>
-                    <p>Avg Results/Query</p>
-                </div>
-            </div>
-            
-            <h2>Query Details (Last 50)</h2>
-            <div>
-                ${currentResults.slice(-50).reverse().map(r => `
-                    <div class="query-result ${r.blocked ? 'blocked' : r.success ? 'success' : 'error'}">
-                        <strong>#${r.queryIndex}</strong> ${r.query} - 
-                        ${r.blocked ? `BLOCKED` : r.success ? `OK (${r.resultsFound} results, ${r.responseTime}ms)` : `ERROR: ${r.error}`}
-                    </div>
-                `).join('')}
-            </div>
-            
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="/" class="btn">Home</a>
-                <a href="/logs" class="btn">Logs</a>
-                <a href="/download-results" class="btn">Download Data</a>
-            </div>
-        </body>
-        </html>
+        <h1>Puppeteer Results</h1>
+        <p>Total: ${currentResults.length}</p>
+        <p>Successful: ${successful.length}</p>
+        <p>Results parsed: ${totalResults}</p>
+        <br><a href="/">Home</a>
     `);
 });
 
-app.get('/download-results', async (req, res) => {
-    try {
-        // Перевіряємо які файли доступні
-        const files = [];
-        
-        try {
-            await fs.access('all_results.csv');
-            files.push({ name: 'all_results.csv', desc: 'All results in CSV format' });
-        } catch {}
-        
-        try {
-            await fs.access('mega_test_summary.json');
-            files.push({ name: 'mega_test_summary.json', desc: 'Test summary statistics' });
-        } catch {}
-        
-        try {
-            await fs.access('mega_test_log.txt');
-            files.push({ name: 'mega_test_log.txt', desc: 'Complete test logs' });
-        } catch {}
-        
-        res.send(`
-            <h1>Download Results</h1>
-            <p>Available files for download:</p>
-            <ul>
-                ${files.map(f => `<li><a href="/download/${f.name}">${f.name}</a> - ${f.desc}</li>`).join('')}
-            </ul>
-            <p><strong>Individual Query Results:</strong> JSON files are stored in /results/ folder</p>
-            <br><a href="/">Home</a>
-        `);
-        
-    } catch (error) {
-        res.status(500).send('Error accessing files: ' + error.message);
-    }
-});
-
-app.get('/download/:filename', async (req, res) => {
-    const filename = req.params.filename;
-    const allowedFiles = ['all_results.csv', 'mega_test_summary.json', 'mega_test_log.txt'];
-    
-    if (!allowedFiles.includes(filename)) {
-        return res.status(404).send('File not allowed');
-    }
-    
-    try {
-        const content = await fs.readFile(filename, 'utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Type', 'text/plain');
-        res.send(content);
-    } catch (error) {
-        res.status(404).send('File not found');
-    }
-});
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        timestamp: new Date().toISOString(),
-        test_running: megaTestRunning,
-        progress: megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'idle'
-    });
-});
-
-// Debug ендпоінт для діагностики парсингу
-app.get('/debug-search', async (req, res) => {
-    const query = req.query.query || 'кредит онлайн';
-    
-    try {
-        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=uk&gl=ua`;
-        
-        const response = await axios.get(searchUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            },
-            timeout: 15000
-        });
-        
-        const html = response.data;
-        
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Debug Google Response</title>
-                <style>
-                    body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
-                    .section { background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #007bff; }
-                    .good { border-left-color: #28a745; }
-                    .bad { border-left-color: #dc3545; }
-                    .warning { border-left-color: #ffc107; }
-                    pre { background: #f0f0f0; padding: 10px; max-height: 400px; overflow: auto; font-size: 10px; }
-                    .tag-sample { border: 1px solid #ccc; margin: 5px; padding: 5px; background: #fff; font-size: 12px; }
-                    .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
-                </style>
-            </head>
-            <body>
-                <h1>🔍 Debug Google Response</h1>
-                
-                <div class="section">
-                    <h3>Request Info</h3>
-                    <p><strong>Query:</strong> "${query}"</p>
-                    <p><strong>URL:</strong> ${searchUrl}</p>
-                    <p><strong>Status:</strong> ${response.status}</p>
-                    <p><strong>HTML Size:</strong> ${html.length} chars</p>
-                </div>
-                
-                <div class="section ${html.toLowerCase().includes('unusual traffic') || html.toLowerCase().includes('captcha') ? 'bad' : 'good'}">
-                    <h3>🚫 Blocking Detection</h3>
-                    <p><strong>unusual traffic:</strong> ${html.toLowerCase().includes('unusual traffic')}</p>
-                    <p><strong>captcha:</strong> ${html.toLowerCase().includes('captcha')}</p>
-                    <p><strong>robots.txt:</strong> ${html.toLowerCase().includes('robots.txt')}</p>
-                    <p><strong>verify you are human:</strong> ${html.toLowerCase().includes('verify you are human')}</p>
-                </div>
-                
-                <div class="section ${html.includes('<h3') ? 'good' : 'bad'}">
-                    <h3>🏗️ HTML Structure Check</h3>
-                    <p><strong>Contains &lt;h3&gt;:</strong> ${html.includes('<h3')} (${(html.match(/<h3/gi) || []).length} found)</p>
-                    <p><strong>Contains data-ved:</strong> ${html.includes('data-ved')} (${(html.match(/data-ved/gi) || []).length} found)</p>
-                    <p><strong>Contains class="g":</strong> ${html.includes('class="g"')} (${(html.match(/class="[^"]*\bg\b[^"]*"/gi) || []).length} found)</p>
-                    <p><strong>Contains MjjYud:</strong> ${html.includes('MjjYud')} (${(html.match(/MjjYud/gi) || []).length} found)</p>
-                    <p><strong>Contains jscontroller:</strong> ${html.includes('jscontroller')} (${(html.match(/jscontroller/gi) || []).length} found)</p>
-                    <p><strong>Contains VwiC3b:</strong> ${html.includes('VwiC3b')} (${(html.match(/VwiC3b/gi) || []).length} found)</p>
-                </div>
-                
-                <div class="section">
-                    <h3>📝 Parse Test</h3>
-                    <p>Running parseTop100Results() on this HTML...</p>
-                    <div style="background: #e9ecef; padding: 10px; border-radius: 3px;">
-                        ${(() => {
-                            try {
-                                const testResults = parseTop100Results(html);
-                                return `<strong>Results found:</strong> ${testResults.length}<br>` +
-                                       testResults.slice(0, 3).map((r, i) => 
-                                           `${i+1}. <a href="${r.url}" target="_blank">${r.title}</a> (${r.domain})`
-                                       ).join('<br>');
-                            } catch (error) {
-                                return `<strong style="color: red;">Parser error:</strong> ${error.message}`;
-                            }
-                        })()}
-                    </div>
-                </div>
-                
-                <div class="section">
-                    <h3>📄 Raw HTML Sample (first 3000 chars)</h3>
-                    <pre>${html.substring(0, 3000).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-                </div>
-                
-                <div class="section">
-                    <h3>🏷️ All H3 tags found (first 10)</h3>
-                    <div style="max-height: 400px; overflow: auto;">
-                        ${(html.match(/<h3[^>]*>[\s\S]*?<\/h3>/gi) || ['<div style="color:red;">NONE FOUND!</div>']).slice(0, 10).map((tag, i) => 
-                            `<div class="tag-sample"><strong>#${i+1}:</strong> ${tag.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
-                        ).join('')}
-                    </div>
-                </div>
-                
-                <div class="section">
-                    <h3>🔗 All A tags with href (first 10)</h3>
-                    <div style="max-height: 300px; overflow: auto;">
-                        ${(html.match(/<a[^>]*href="[^"]*"[^>]*>[\s\S]*?<\/a>/gi) || ['<div style="color:red;">NONE FOUND!</div>']).slice(0, 10).map((tag, i) => 
-                            `<div class="tag-sample"><strong>#${i+1}:</strong> ${tag.substring(0, 200).replace(/</g, '&lt;').replace(/>/g, '&gt;')}...</div>`
-                        ).join('')}
-                    </div>
-                </div>
-                
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="/" class="btn">🏠 Home</a>
-                    <a href="/debug-search?query=test" class="btn">🧪 Test English</a>
-                    <a href="/debug-search?query=ukraine+news" class="btn">🌍 Test Ukraine</a>
-                    <a href="/debug-search?query=кредит" class="btn">🏦 Test Credit</a>
-                </div>
-            </body>
-            </html>
-        `);
-        
-    } catch (error) {
-        res.send(`
-            <h1>❌ Debug Error</h1>
-            <p><strong>Error:</strong> ${error.message}</p>
-            <p><strong>Status:</strong> ${error.response ? error.response.status : 'No response'}</p>
-            <br><a href="/" class="btn">🏠 Home</a>
-        `);
-    }
-});
-
-// Start server
 app.listen(PORT, () => {
-    console.log(`MEGA Bulk Tester running on port ${PORT}`);
-    console.log(`Ready to test ${UKRAINE_QUERIES.length} Ukraine queries`);
-    console.log(`Expected ~${UKRAINE_QUERIES.length * 50} total results`);
+    console.log(`Puppeteer SERP scraper running on port ${PORT}`);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     megaTestRunning = false;
-    console.log('Server shutting down...');
+    if (browser) {
+        await browser.close();
+    }
     process.exit(0);
 });
