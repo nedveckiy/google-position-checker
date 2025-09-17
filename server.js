@@ -190,13 +190,18 @@ async function testSingleQueryMega(query, queryIndex) {
         const responseTime = Date.now() - startTime;
         const html = response.data;
         
-        // Перевірка блокування
+        // Оновлена перевірка блокування для 2025
         const htmlLower = html.toLowerCase();
         const blocked = htmlLower.includes('unusual traffic') || 
                        htmlLower.includes('captcha') || 
                        htmlLower.includes('robots.txt') ||
                        htmlLower.includes('verify you are human') ||
-                       response.status === 429;
+                       htmlLower.includes('our systems have detected') ||
+                       htmlLower.includes('suspicious activity') ||
+                       htmlLower.includes('automated queries') ||
+                       response.status === 429 ||
+                       response.status === 503 ||
+                       response.status === 403;
         
         if (blocked) {
             console.log(`[${queryIndex}] *** BLOCKED DETECTED ***`);
@@ -521,6 +526,7 @@ app.get('/', (req, res) => {
                 
                 <a href="/ip" class="btn btn-info">Check IP</a>
                 <a href="/logs" class="btn btn-primary">Live Logs</a>
+                <a href="/debug-search?query=кредит+онлайн" class="btn btn-info">Debug Parser</a>
                 <a href="/results-summary" class="btn btn-primary">Results Summary</a>
                 <a href="/download-results" class="btn btn-info">Download Data</a>
             </div>
@@ -762,6 +768,129 @@ app.get('/health', (req, res) => {
         test_running: megaTestRunning,
         progress: megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'idle'
     });
+});
+
+// Debug ендпоінт для діагностики парсингу
+app.get('/debug-search', async (req, res) => {
+    const query = req.query.query || 'кредит онлайн';
+    
+    try {
+        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=uk&gl=ua`;
+        
+        const response = await axios.get(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            timeout: 15000
+        });
+        
+        const html = response.data;
+        
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Debug Google Response</title>
+                <style>
+                    body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
+                    .section { background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+                    .good { border-left-color: #28a745; }
+                    .bad { border-left-color: #dc3545; }
+                    .warning { border-left-color: #ffc107; }
+                    pre { background: #f0f0f0; padding: 10px; max-height: 400px; overflow: auto; font-size: 10px; }
+                    .tag-sample { border: 1px solid #ccc; margin: 5px; padding: 5px; background: #fff; font-size: 12px; }
+                    .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+                </style>
+            </head>
+            <body>
+                <h1>🔍 Debug Google Response</h1>
+                
+                <div class="section">
+                    <h3>Request Info</h3>
+                    <p><strong>Query:</strong> "${query}"</p>
+                    <p><strong>URL:</strong> ${searchUrl}</p>
+                    <p><strong>Status:</strong> ${response.status}</p>
+                    <p><strong>HTML Size:</strong> ${html.length} chars</p>
+                </div>
+                
+                <div class="section ${html.toLowerCase().includes('unusual traffic') || html.toLowerCase().includes('captcha') ? 'bad' : 'good'}">
+                    <h3>🚫 Blocking Detection</h3>
+                    <p><strong>unusual traffic:</strong> ${html.toLowerCase().includes('unusual traffic')}</p>
+                    <p><strong>captcha:</strong> ${html.toLowerCase().includes('captcha')}</p>
+                    <p><strong>robots.txt:</strong> ${html.toLowerCase().includes('robots.txt')}</p>
+                    <p><strong>verify you are human:</strong> ${html.toLowerCase().includes('verify you are human')}</p>
+                </div>
+                
+                <div class="section ${html.includes('<h3') ? 'good' : 'bad'}">
+                    <h3>🏗️ HTML Structure Check</h3>
+                    <p><strong>Contains &lt;h3&gt;:</strong> ${html.includes('<h3')} (${(html.match(/<h3/gi) || []).length} found)</p>
+                    <p><strong>Contains data-ved:</strong> ${html.includes('data-ved')} (${(html.match(/data-ved/gi) || []).length} found)</p>
+                    <p><strong>Contains class="g":</strong> ${html.includes('class="g"')} (${(html.match(/class="[^"]*\bg\b[^"]*"/gi) || []).length} found)</p>
+                    <p><strong>Contains MjjYud:</strong> ${html.includes('MjjYud')} (${(html.match(/MjjYud/gi) || []).length} found)</p>
+                    <p><strong>Contains jscontroller:</strong> ${html.includes('jscontroller')} (${(html.match(/jscontroller/gi) || []).length} found)</p>
+                    <p><strong>Contains VwiC3b:</strong> ${html.includes('VwiC3b')} (${(html.match(/VwiC3b/gi) || []).length} found)</p>
+                </div>
+                
+                <div class="section">
+                    <h3>📝 Parse Test</h3>
+                    <p>Running parseTop100Results() on this HTML...</p>
+                    <div style="background: #e9ecef; padding: 10px; border-radius: 3px;">
+                        ${(() => {
+                            try {
+                                const testResults = parseTop100Results(html);
+                                return `<strong>Results found:</strong> ${testResults.length}<br>` +
+                                       testResults.slice(0, 3).map((r, i) => 
+                                           `${i+1}. <a href="${r.url}" target="_blank">${r.title}</a> (${r.domain})`
+                                       ).join('<br>');
+                            } catch (error) {
+                                return `<strong style="color: red;">Parser error:</strong> ${error.message}`;
+                            }
+                        })()}
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>📄 Raw HTML Sample (first 3000 chars)</h3>
+                    <pre>${html.substring(0, 3000).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                </div>
+                
+                <div class="section">
+                    <h3>🏷️ All H3 tags found (first 10)</h3>
+                    <div style="max-height: 400px; overflow: auto;">
+                        ${(html.match(/<h3[^>]*>[\s\S]*?<\/h3>/gi) || ['<div style="color:red;">NONE FOUND!</div>']).slice(0, 10).map((tag, i) => 
+                            `<div class="tag-sample"><strong>#${i+1}:</strong> ${tag.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>🔗 All A tags with href (first 10)</h3>
+                    <div style="max-height: 300px; overflow: auto;">
+                        ${(html.match(/<a[^>]*href="[^"]*"[^>]*>[\s\S]*?<\/a>/gi) || ['<div style="color:red;">NONE FOUND!</div>']).slice(0, 10).map((tag, i) => 
+                            `<div class="tag-sample"><strong>#${i+1}:</strong> ${tag.substring(0, 200).replace(/</g, '&lt;').replace(/>/g, '&gt;')}...</div>`
+                        ).join('')}
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="/" class="btn">🏠 Home</a>
+                    <a href="/debug-search?query=test" class="btn">🧪 Test English</a>
+                    <a href="/debug-search?query=ukraine+news" class="btn">🌍 Test Ukraine</a>
+                    <a href="/debug-search?query=кредит" class="btn">🏦 Test Credit</a>
+                </div>
+            </body>
+            </html>
+        `);
+        
+    } catch (error) {
+        res.send(`
+            <h1>❌ Debug Error</h1>
+            <p><strong>Error:</strong> ${error.message}</p>
+            <p><strong>Status:</strong> ${error.response ? error.response.status : 'No response'}</p>
+            <br><a href="/" class="btn">🏠 Home</a>
+        `);
+    }
 });
 
 // Start server
