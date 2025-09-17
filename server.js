@@ -91,38 +91,51 @@ async function logResult(logEntry) {
     }
 }
 
-// Покращений парсинг з більш широким охопленням
+// Оновлений парсер 2025 з актуальними селекторами
 function parseTop100Results(html) {
     const results = [];
-    
-    // Множинні паттерни для пошуку результатів
-    const patterns = [
-        /<div class="g"[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*VwiC3b[^"]*"[^>]*>([\s\S]*?)<\/span>|$)/gi,
-        /<div[^>]*class="[^"]*g[^"]*"[^>]*>[\s\S]*?<h3[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>.*?<\/h3>[\s\S]*?<span[^>]*>(.*?)<\/span>/gi,
-        /<a[^>]*href="\/url\?q=([^&"]*)[^"]*"[^>]*><h3[^>]*>(.*?)<\/h3><\/a>/gi
-    ];
-    
     let position = 1;
-    let foundUrls = new Set(); // Уникнення дублікатів
+    const foundUrls = new Set();
+    
+    // Оновлені паттерни для Google 2025
+    const patterns = [
+        // Паттерн 1: data-ved атрибути (найновіший)
+        /<div[^>]*data-ved[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|s3v9rd|IsZvec)[^"]*"[^>]*>([\s\S]*?)<\/span>|<div[^>]*class="[^"]*(?:VwiC3b|s3v9rd)[^"]*"[^>]*>([\s\S]*?)<\/div>|$)/gi,
+        
+        // Паттерн 2: MjjYud клас wrapper
+        /<div[^>]*class="[^"]*MjjYud[^"]*"[^>]*>[\s\S]*?<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|s3v9rd|IsZvec)[^"]*"[^>]*>([\s\S]*?)<\/span>|<div[^>]*>([\s\S]*?)<\/div>|$)/gi,
+        
+        // Паттерн 3: jscontroller атрибути
+        /<div[^>]*jscontroller[^>]*>[\s\S]*?<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?(?:<span[^>]*>([\s\S]*?)<\/span>|<div[^>]*>([\s\S]*?)<\/div>|$)/gi,
+        
+        // Паттерн 4: Класичний g клас (fallback)
+        /<div[^>]*class="[^"]*\bg\b[^"]*"[^>]*>[\s\S]*?<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>[\s\S]*?(?:<span[^>]*class="[^"]*(?:VwiC3b|st|s3v9rd)[^"]*"[^>]*>([\s\S]*?)<\/span>|$)/gi,
+        
+        // Паттерн 5: Простий H3 + A (універсальний)
+        /<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>/gi
+    ];
     
     for (let pattern of patterns) {
         let match;
-        pattern.lastIndex = 0; // Reset regex
+        pattern.lastIndex = 0;
         
         while ((match = pattern.exec(html)) !== null && position <= TEST_CONFIG.maxResultsPerQuery) {
             try {
                 let url = match[1];
                 let title = match[2] ? match[2].replace(/<[^>]*>/g, '').trim() : '';
-                let snippet = match[3] ? match[3].replace(/<[^>]*>/g, '').trim() : '';
+                let snippet = (match[3] || match[4] || '').replace(/<[^>]*>/g, '').trim();
                 
-                // Очищення URL
+                // Очищення URL від Google редиректів
                 if (url.startsWith('/url?q=')) {
-                    url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
-                } else if (url.startsWith('http') === false) {
-                    continue; // Пропускаємо невалідні URL
+                    try {
+                        url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
+                    } catch (e) {
+                        continue;
+                    }
                 }
                 
-                // Уникнення дублікатів
+                // Перевірка валідності URL
+                if (!url.startsWith('http')) continue;
                 if (foundUrls.has(url)) continue;
                 foundUrls.add(url);
                 
@@ -134,7 +147,7 @@ function parseTop100Results(html) {
                     domain = url.substring(0, 50);
                 }
                 
-                if (title && url.startsWith('http')) {
+                if (title && url) {
                     results.push({
                         position: position,
                         title: title.substring(0, 200),
@@ -150,7 +163,8 @@ function parseTop100Results(html) {
         }
     }
     
-    return results;
+    console.log(`Parsed ${results.length} results using 2025 patterns`);
+    return results.slice(0, TEST_CONFIG.maxResultsPerQuery);
 }
 
 async function testSingleQueryMega(query, queryIndex) {
