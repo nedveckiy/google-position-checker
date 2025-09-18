@@ -1,11 +1,11 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 const fs = require('fs').promises;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 293 ключових слова для України (скорочено для прикладу)
+// 293 ключових слова для України
 const UKRAINE_QUERIES = [
     'кредит онлайн', 'онлайн кредит', 'взять кредит онлайн', 'онлайн кредит на карту', 'кредит на карту онлайн',
     'деньги в кредит онлайн', 'кредит онлайн на карту', 'займ на карту', 'займы', 'займы онлайн',
@@ -62,68 +62,51 @@ const UKRAINE_QUERIES = [
 let megaTestRunning = false;
 let currentResults = [];
 let currentQueryIndex = 0;
-let browser = null;
 
 const TEST_CONFIG = {
-    delayBetweenRequests: 5000,    // 5 секунд між запитами
-    pauseAfterQueries: 15,         // Пауза кожні 15 запитів
-    pauseDuration: 60000,          // 60 секунд пауза
-    maxResultsPerQuery: 100        
+    delayBetweenRequests: 3000,
+    pauseAfterQueries: 25,
+    pauseDuration: 30000,
+    maxResultsPerQuery: 100
 };
 
-// Ініціалізація браузера з анти-детекцією
-async function initBrowser() {
-    if (browser) return browser;
-    
-    console.log('Initializing Puppeteer browser...');
-    
-    browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--disable-images',
-            '--disable-javascript',
-            '--disable-default-apps',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-field-trial-config'
-        ]
-    });
-    
-    return browser;
+async function getCurrentIP() {
+    try {
+        const response = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+        return response.data.ip;
+    } catch (error) {
+        return 'Unknown';
+    }
 }
 
-// Створення нової сторінки з анти-детекцією
-async function createStealthPage() {
-    const browser = await initBrowser();
-    const page = await browser.newPage();
+async function logResult(logEntry) {
+    const logLine = `${new Date().toISOString()} | ${JSON.stringify(logEntry)}\n`;
     
-    // Встановлюємо viewport
-    await page.setViewport({
-        width: 1366,
-        height: 768,
-        deviceScaleFactor: 1
-    });
+    try {
+        await fs.appendFile('mega_test_log.txt', logLine);
+        console.log(`[LOG] Query ${logEntry.queryIndex || '?'}: ${logEntry.success ? 'OK' : 'FAIL'}`);
+    } catch (error) {
+        console.error('Log error:', error.message);
+    }
+}
+
+// Покращені заголовки для обходу детекції
+function getRandomHeaders() {
+    const userAgents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ];
     
-    // Встановлюємо User-Agent
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
     
-    // Встановлюємо додаткові заголовки
-    await page.setExtraHTTPHeaders({
+    return {
+        'User-Agent': randomUA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,uk;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
         'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
@@ -131,164 +114,132 @@ async function createStealthPage() {
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
-    });
-    
-    // Анти-детекція скрипти
-    await page.evaluateOnNewDocument(() => {
-        // Приховуємо webdriver
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-        });
-        
-        // Перевизначаємо chrome property
-        window.chrome = {
-            runtime: {}
-        };
-        
-        // Перевизначаємо plugins
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5]
-        });
-        
-        // Перевизначаємо languages
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['en-US', 'en', 'uk']
-        });
-        
-        // Приховуємо automation
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-    });
-    
-    return page;
+        'Cache-Control': 'no-cache'
+    };
 }
 
-// Функція для парсингу Google SERP з Puppeteer
-async function scrapeGoogleWithPuppeteer(query, queryIndex) {
-    let page = null;
+// Парсинг результатів з regex
+function parseGoogleResults(html) {
+    const results = [];
+    
+    // Кілька паттернів для різних структур Google
+    const patterns = [
+        // Паттерн 1: основний
+        /<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a><\/h3>/gi,
+        // Паттерн 2: альтернативний
+        /<a[^>]*href="([^"]*)"[^>]*><h3[^>]*>(.*?)<\/h3><\/a>/gi
+    ];
+    
+    let position = 1;
+    const foundUrls = new Set();
+    
+    for (let pattern of patterns) {
+        let match;
+        pattern.lastIndex = 0;
+        
+        while ((match = pattern.exec(html)) !== null && position <= 100) {
+            try {
+                let url = match[1];
+                let title = match[2] ? match[2].replace(/<[^>]*>/g, '').trim() : '';
+                
+                // Очищуємо URL
+                if (url.startsWith('/url?q=')) {
+                    url = decodeURIComponent(url.split('/url?q=')[1].split('&')[0]);
+                }
+                
+                if (!url.startsWith('http') || foundUrls.has(url)) continue;
+                foundUrls.add(url);
+                
+                if (!title) continue;
+                
+                // Домен
+                let domain = '';
+                try {
+                    domain = new URL(url).hostname.replace('www.', '');
+                } catch (e) {
+                    domain = url.substring(0, 50);
+                }
+                
+                results.push({
+                    position: position,
+                    title: title.substring(0, 200),
+                    url: url,
+                    domain: domain,
+                    snippet: ''
+                });
+                position++;
+                
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    return results;
+}
+
+async function testSingleQuery(query, queryIndex) {
+    // Спробуємо кілька варіантів локації
+    const locations = [
+        { hl: 'en', gl: 'us' },
+        { hl: 'en', gl: 'gb' },
+        { hl: 'en', gl: 'ca' }
+    ];
+    
+    const randomLocation = locations[Math.floor(Math.random() * locations.length)];
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=50&hl=${randomLocation.hl}&gl=${randomLocation.gl}`;
     
     try {
-        console.log(`[${queryIndex}] Opening browser page for: "${query}"`);
+        console.log(`[${queryIndex}/${UKRAINE_QUERIES.length}] Testing: "${query}"`);
         
-        page = await createStealthPage();
         const startTime = Date.now();
         
-        // Формуємо URL
-        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=100&hl=en&gl=us`;
-        
-        console.log(`[${queryIndex}] Navigating to: ${searchUrl}`);
-        
-        // Переходимо на Google
-        const response = await page.goto(searchUrl, {
-            waitUntil: 'networkidle0',
-            timeout: 30000
+        const response = await axios.get(searchUrl, {
+            headers: getRandomHeaders(),
+            timeout: 15000
         });
         
         const responseTime = Date.now() - startTime;
+        const html = response.data;
         
-        // Перевіряємо чи заблоковані
-        const title = await page.title();
-        const url = page.url();
+        // Перевірка блокування
+        const htmlLower = html.toLowerCase();
+        const blocked = htmlLower.includes('unusual traffic') || 
+                       htmlLower.includes('captcha') || 
+                       htmlLower.includes('robots.txt') ||
+                       htmlLower.includes('noscript') ||
+                       htmlLower.includes('enablejs') ||
+                       response.status === 429;
         
-        if (title.includes('unusual traffic') || url.includes('sorry') || url.includes('captcha')) {
-            console.log(`[${queryIndex}] *** BLOCKED DETECTED ***`);
-            await page.close();
+        if (blocked) {
+            console.log(`[${queryIndex}] BLOCKED - IP needs rotation`);
             return {
                 queryIndex: queryIndex,
                 query: query,
                 success: true,
                 blocked: true,
-                statusCode: response.status(),
+                statusCode: response.status,
                 responseTime: responseTime,
+                htmlSize: html.length,
                 resultsFound: 0,
                 results: [],
                 timestamp: new Date().toISOString()
             };
         }
         
-        // Чекаємо завантаження результатів
-        await page.waitForSelector('h3', { timeout: 10000 }).catch(() => {
-            console.log(`[${queryIndex}] No h3 elements found, continuing...`);
-        });
+        // Парсинг результатів
+        const results = parseGoogleResults(html);
         
-        // Парсимо результати
-        console.log(`[${queryIndex}] Parsing results...`);
-        
-        const results = await page.evaluate(() => {
-            const results = [];
-            let position = 1;
-            
-            // Шукаємо всі результати через різні селектори
-            const selectors = [
-                'div[data-ved] h3 a',
-                'div.g h3 a', 
-                'div.MjjYud h3 a',
-                'div[jscontroller] h3 a'
-            ];
-            
-            const foundUrls = new Set();
-            
-            for (let selector of selectors) {
-                const elements = document.querySelectorAll(selector);
-                
-                elements.forEach(link => {
-                    if (position > 100) return;
-                    
-                    let url = link.href;
-                    if (!url || !url.startsWith('http')) return;
-                    if (foundUrls.has(url)) return;
-                    foundUrls.add(url);
-                    
-                    const title = link.textContent.trim();
-                    if (!title) return;
-                    
-                    // Шукаємо snippet
-                    let snippet = '';
-                    const parent = link.closest('div');
-                    if (parent) {
-                        const snippetEl = parent.querySelector('.VwiC3b, .s3v9rd, .st, .IsZvec');
-                        if (snippetEl) {
-                            snippet = snippetEl.textContent.trim();
-                        }
-                    }
-                    
-                    // Витягуємо домен
-                    let domain = '';
-                    try {
-                        domain = new URL(url).hostname.replace('www.', '');
-                    } catch (e) {
-                        domain = url.substring(0, 50);
-                    }
-                    
-                    results.push({
-                        position: position,
-                        title: title.substring(0, 200),
-                        url: url,
-                        domain: domain,
-                        snippet: snippet.substring(0, 300)
-                    });
-                    
-                    position++;
-                });
-            }
-            
-            return results;
-        });
-        
-        await page.close();
-        
-        console.log(`[${queryIndex}] SUCCESS - ${results.length} results parsed - ${responseTime}ms`);
+        console.log(`[${queryIndex}] SUCCESS - ${results.length} results - ${responseTime}ms`);
         
         const result = {
             queryIndex: queryIndex,
             query: query,
             success: true,
             blocked: false,
-            statusCode: response.status(),
+            statusCode: response.status,
             responseTime: responseTime,
-            htmlSize: 0, // Puppeteer не дає HTML розмір
+            htmlSize: html.length,
             resultsFound: results.length,
             results: results,
             timestamp: new Date().toISOString()
@@ -300,8 +251,6 @@ async function scrapeGoogleWithPuppeteer(query, queryIndex) {
         return result;
         
     } catch (error) {
-        if (page) await page.close();
-        
         console.log(`[${queryIndex}] ERROR: ${error.message}`);
         
         return {
@@ -310,6 +259,7 @@ async function scrapeGoogleWithPuppeteer(query, queryIndex) {
             success: false,
             blocked: false,
             error: error.message,
+            statusCode: error.response ? error.response.status : 'TIMEOUT',
             responseTime: 0,
             resultsFound: 0,
             results: [],
@@ -318,7 +268,7 @@ async function scrapeGoogleWithPuppeteer(query, queryIndex) {
     }
 }
 
-// Збереження результатів (та же функція)
+// Збереження результатів
 async function saveQueryResults(queryIndex, query, result) {
     try {
         const jsonFilename = `results/query_${String(queryIndex).padStart(3, '0')}.json`;
@@ -341,7 +291,6 @@ async function saveQueryResults(queryIndex, query, result) {
     }
 }
 
-// CSV функція (та же)
 async function appendToCSV(queryIndex, query, results) {
     try {
         let csvContent = '';
@@ -349,7 +298,7 @@ async function appendToCSV(queryIndex, query, results) {
         try {
             await fs.access('all_results.csv');
         } catch {
-            csvContent = 'QueryIndex,Query,Position,Title,URL,Domain,Snippet\n';
+            csvContent = 'QueryIndex,Query,Position,Title,URL,Domain\n';
         }
         
         for (let result of results) {
@@ -359,8 +308,7 @@ async function appendToCSV(queryIndex, query, results) {
                 result.position,
                 `"${result.title.replace(/"/g, '""')}"`,
                 `"${result.url.replace(/"/g, '""')}"`,
-                `"${result.domain.replace(/"/g, '""')}"`,
-                `"${result.snippet.replace(/"/g, '""')}"`
+                `"${result.domain.replace(/"/g, '""')}"`
             ].join(',') + '\n';
             
             csvContent += csvRow;
@@ -373,57 +321,43 @@ async function appendToCSV(queryIndex, query, results) {
     }
 }
 
-// Функція логування
-async function logResult(logEntry) {
-    const logLine = `${new Date().toISOString()} | ${JSON.stringify(logEntry)}\n`;
-    
-    try {
-        await fs.appendFile('puppeteer_test_log.txt', logLine);
-        console.log(`[LOG] Query ${logEntry.queryIndex || '?'}: ${logEntry.success ? 'OK' : 'FAIL'}`);
-    } catch (error) {
-        console.error('Log error:', error.message);
-    }
-}
-
 // Головна функція тестування
-async function runPuppeteerBulkTest() {
+async function runMegaBulkTest() {
     if (megaTestRunning) {
-        return { success: false, error: 'Puppeteer test already running' };
+        return { success: false, error: 'Test already running' };
     }
     
     megaTestRunning = true;
     currentResults = [];
     currentQueryIndex = 0;
     
+    const startIP = await getCurrentIP();
     const testStartTime = new Date().toISOString();
-    console.log(`Starting Puppeteer bulk test with ${UKRAINE_QUERIES.length} queries`);
+    
+    console.log(`Starting test with ${UKRAINE_QUERIES.length} queries from IP: ${startIP}`);
     
     try {
-        // Створюємо папку для результатів
         try {
             await fs.mkdir('results');
         } catch (e) {}
         
         for (let i = 0; i < UKRAINE_QUERIES.length; i++) {
-            if (!megaTestRunning) {
-                console.log('Test stopped by user');
-                break;
-            }
+            if (!megaTestRunning) break;
             
             currentQueryIndex = i + 1;
             const query = UKRAINE_QUERIES[i];
             
-            // Виконати запит через Puppeteer
-            const result = await scrapeGoogleWithPuppeteer(query, currentQueryIndex);
+            const result = await testSingleQuery(query, currentQueryIndex);
+            result.ip = startIP;
             
             currentResults.push(result);
             await logResult(result);
             
-            // Перевірка блокування
             if (result.blocked) {
-                console.log('*** GOOGLE BLOCKED - STOPPING TEST ***');
+                console.log('BLOCKED - Stopping test');
                 await logResult({
-                    type: 'puppeteer_test_blocked',
+                    type: 'test_blocked',
+                    ip: startIP,
                     totalQueries: UKRAINE_QUERIES.length,
                     completedQueries: currentQueryIndex,
                     blockedAt: currentQueryIndex,
@@ -432,28 +366,22 @@ async function runPuppeteerBulkTest() {
                 break;
             }
             
-            // Пауза кожні N запитів
+            // Паузи
             if (currentQueryIndex % TEST_CONFIG.pauseAfterQueries === 0) {
-                console.log(`Taking ${TEST_CONFIG.pauseDuration/1000}s break after ${currentQueryIndex} queries...`);
+                console.log(`Break for ${TEST_CONFIG.pauseDuration/1000}s after ${currentQueryIndex} queries...`);
                 await new Promise(resolve => setTimeout(resolve, TEST_CONFIG.pauseDuration));
             }
             
-            // Основна затримка між запитами
             if (i < UKRAINE_QUERIES.length - 1 && megaTestRunning) {
                 console.log(`Waiting ${TEST_CONFIG.delayBetweenRequests/1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, TEST_CONFIG.delayBetweenRequests));
             }
         }
         
-        // Закриваємо браузер
-        if (browser) {
-            await browser.close();
-            browser = null;
-        }
-        
-        // Фінальний звіт
+        // Звіт
         const summary = {
-            type: 'puppeteer_test_completed',
+            type: 'test_completed',
+            ip: startIP,
             startTime: testStartTime,
             endTime: new Date().toISOString(),
             totalQueries: UKRAINE_QUERIES.length,
@@ -461,36 +389,25 @@ async function runPuppeteerBulkTest() {
             successfulQueries: currentResults.filter(r => r.success && !r.blocked).length,
             blockedQueries: currentResults.filter(r => r.blocked).length,
             errorQueries: currentResults.filter(r => !r.success).length,
-            totalResultsParsed: currentResults.reduce((sum, r) => sum + r.resultsFound, 0),
-            averageResponseTime: Math.round(
-                currentResults.filter(r => r.responseTime > 0)
-                    .reduce((sum, r) => sum + r.responseTime, 0) / 
-                Math.max(1, currentResults.filter(r => r.responseTime > 0).length)
-            )
+            totalResultsParsed: currentResults.reduce((sum, r) => sum + r.resultsFound, 0)
         };
         
         await logResult(summary);
-        await fs.writeFile('puppeteer_summary.json', JSON.stringify(summary, null, 2));
+        await fs.writeFile('test_summary.json', JSON.stringify(summary, null, 2));
         
-        console.log('PUPPETEER TEST COMPLETED:', summary);
+        console.log('TEST COMPLETED:', summary);
         return { success: true, summary: summary, results: currentResults };
         
     } catch (error) {
-        console.error('Puppeteer test critical error:', error);
+        console.error('Test error:', error);
         return { success: false, error: error.message };
     } finally {
         megaTestRunning = false;
         currentQueryIndex = 0;
-        
-        if (browser) {
-            await browser.close();
-            browser = null;
-        }
     }
 }
 
-// =============== ROUTES ===============
-
+// ROUTES
 app.get('/', (req, res) => {
     const progress = megaTestRunning ? `${currentQueryIndex}/${UKRAINE_QUERIES.length}` : 'Ready';
     
@@ -499,32 +416,31 @@ app.get('/', (req, res) => {
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>Puppeteer Google SERP Scraper</title>
+            <title>Google Scraper - ${UKRAINE_QUERIES.length} Queries</title>
             <style>
-                body { font-family: Arial, sans-serif; max-width: 1000px; margin: 20px auto; padding: 20px; }
+                body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; }
                 h1 { text-align: center; color: #333; }
                 .status { background: ${megaTestRunning ? '#fff3cd' : '#d4edda'}; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
-                .btn { display: inline-block; padding: 15px 30px; margin: 10px; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; cursor: pointer; border: none; }
+                .btn { display: inline-block; padding: 15px 25px; margin: 10px; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; cursor: pointer; border: none; }
                 .btn-success { background: #28a745; }
                 .btn-danger { background: #dc3545; }
                 .btn-primary { background: #007bff; }
                 .btn:hover { opacity: 0.9; }
-                .features { background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; }
             </style>
             <script>
-                async function startPuppeteerTest() {
-                    if (!confirm('Start Puppeteer test? This uses a real browser and may take 30+ minutes.')) return;
+                async function startTest() {
+                    if (!confirm('Start testing ${UKRAINE_QUERIES.length} queries?')) return;
                     
                     const btn = document.getElementById('startBtn');
                     btn.textContent = 'Starting...';
                     btn.disabled = true;
                     
                     try {
-                        const response = await fetch('/start-puppeteer-test');
+                        const response = await fetch('/start-test');
                         const result = await response.json();
                         
                         if (result.success) {
-                            alert('Puppeteer test started!');
+                            alert('Test started!');
                             location.reload();
                         } else {
                             alert('Error: ' + result.error);
@@ -534,7 +450,7 @@ app.get('/', (req, res) => {
                     }
                     
                     btn.disabled = false;
-                    btn.textContent = 'START PUPPETEER TEST';
+                    btn.textContent = 'START TEST';
                 }
                 
                 async function stopTest() {
@@ -547,28 +463,20 @@ app.get('/', (req, res) => {
                         alert('Error: ' + error.message);
                     }
                 }
+                
+                if (${megaTestRunning}) {
+                    setTimeout(() => location.reload(), 10000);
+                }
             </script>
         </head>
         <body>
-            <h1>Puppeteer Google SERP Scraper</h1>
+            <h1>Google SERP Scraper</h1>
             
             <div class="status">
                 <h3>Status: ${megaTestRunning ? 'RUNNING' : 'READY'}</h3>
                 <strong>Progress:</strong> ${progress}<br>
-                <strong>Mode:</strong> Full Browser (Puppeteer)<br>
-                <strong>Anti-Detection:</strong> Enabled
-            </div>
-
-            <div class="features">
-                <h3>Anti-Detection Features:</h3>
-                <ul>
-                    <li>Real Chrome browser rendering</li>
-                    <li>Stealth user agent & headers</li>
-                    <li>JavaScript execution</li>
-                    <li>WebDriver property hiding</li>
-                    <li>Realistic viewport & plugins</li>
-                    <li>Network idle waiting</li>
-                </ul>
+                <strong>Anti-Detection:</strong> Random headers, locations, delays<br>
+                <strong>Time:</strong> ${new Date().toLocaleString()}
             </div>
 
             <div style="text-align: center; margin: 30px 0;">
@@ -576,79 +484,7 @@ app.get('/', (req, res) => {
                     <button onclick="stopTest()" class="btn btn-danger">STOP TEST</button>
                     <p>Query ${currentQueryIndex}/${UKRAINE_QUERIES.length} running...</p>
                 ` : `
-                    <button id="startBtn" onclick="startPuppeteerTest()" class="btn btn-success">START PUPPETEER TEST</button>
+                    <button id="startBtn" onclick="startTest()" class="btn btn-success">START TEST</button>
                 `}
                 
-                <a href="/logs" class="btn btn-primary">View Logs</a>
-                <a href="/results-summary" class="btn btn-primary">Results Summary</a>
-            </div>
-        </body>
-        </html>
-    `);
-});
-
-app.get('/start-puppeteer-test', async (req, res) => {
-    if (megaTestRunning) {
-        return res.json({ success: false, error: 'Test already running' });
-    }
-    
-    runPuppeteerBulkTest().then(result => {
-        console.log('Puppeteer test finished:', result.success);
-    }).catch(error => {
-        console.error('Puppeteer test failed:', error);
-        megaTestRunning = false;
-    });
-    
-    res.json({ success: true, message: 'Puppeteer test started' });
-});
-
-app.get('/stop-test', (req, res) => {
-    megaTestRunning = false;
-    res.json({ message: 'Test stopped' });
-});
-
-app.get('/logs', async (req, res) => {
-    try {
-        const logs = await fs.readFile('puppeteer_test_log.txt', 'utf-8');
-        const lines = logs.split('\n').slice(-50);
-        
-        res.send(`
-            <h1>Puppeteer Logs</h1>
-            <pre style="background:#000; color:#0f0; padding:20px; overflow:auto; max-height:600px;">
-                ${lines.join('\n')}
-            </pre>
-            <br><a href="/">Home</a>
-        `);
-    } catch (error) {
-        res.send('<h2>No logs found</h2><a href="/">Home</a>');
-    }
-});
-
-app.get('/results-summary', (req, res) => {
-    if (currentResults.length === 0) {
-        return res.send('<h2>No results yet</h2><a href="/">Home</a>');
-    }
-    
-    const successful = currentResults.filter(r => r.success && !r.blocked);
-    const totalResults = currentResults.reduce((sum, r) => sum + r.resultsFound, 0);
-    
-    res.send(`
-        <h1>Puppeteer Results</h1>
-        <p>Total: ${currentResults.length}</p>
-        <p>Successful: ${successful.length}</p>
-        <p>Results parsed: ${totalResults}</p>
-        <br><a href="/">Home</a>
-    `);
-});
-
-app.listen(PORT, () => {
-    console.log(`Puppeteer SERP scraper running on port ${PORT}`);
-});
-
-process.on('SIGTERM', async () => {
-    megaTestRunning = false;
-    if (browser) {
-        await browser.close();
-    }
-    process.exit(0);
-});
+                <a href="/ip" class="btn btn-primary">Check IP</a>
